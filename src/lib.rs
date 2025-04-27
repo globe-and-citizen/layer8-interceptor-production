@@ -30,7 +30,6 @@ pub async fn init_encrypted_tunnel(config: JsValue) -> Result<JsValue, JsValue> 
     Ok(result)
 }
 
-// try to throw an error
 #[wasm_bindgen]
 pub async fn fetch(url: String, config: JsValue) -> Result<JsValue, JsValue> {
     console::log_1(&format!("Fetching URL: {}", url).into());
@@ -40,6 +39,7 @@ pub async fn fetch(url: String, config: JsValue) -> Result<JsValue, JsValue> {
     Ok(result)
 }
 
+// try to throw an error
 #[wasm_bindgen]
 pub async fn get_static(uri: String) -> Result<JsValue, JsValue> {
     console::log_1(&format!("Getting static resource from: {}", uri).into());

@@ -10,8 +10,6 @@ $ cargo init --lib
 ```
 Write rust code in `src/lib.rs`
 
-```rust
-
 - Add dependencies to `Cargo.toml`:
 
 ```toml
@@ -33,13 +31,13 @@ $ npm create vue@latest frontend
 - Add dependencies to `frontend/package.json`:
 
 ```json
-...
+  ...
   "dependencies": {
     "vite-plugin-wasm": "^3.4.1",
     "vue": "^3.5.13",
     "interceptor-wasm": "file:../pkg"
   },
-...
+  ...
 ```
 
 - Add wasm plugin to `frontend/vite.config.js`:
@@ -48,11 +46,12 @@ $ npm create vue@latest frontend
 import wasm from "vite-plugin-wasm";
 
 export default {
-  plugins: [
-    // other plugins...
-    wasm(),
-  ],
-...
+    plugins: [
+        // other plugins...
+        wasm(),
+    ],
+    ...
+}
 ```
 
 Run `cd frontend && npm install` to install the dependencies.
@@ -62,3 +61,9 @@ Open `frontend/src/main.js` and import the wasm module, for example: `import * a
 You can then use the wasm module.
 
 Run frontend with `npm run dev` and open the browser to see the result.
+
+- Publish to npm:
+```bash
+$ wasm-pack build
+$ cd pkg && wasm-pack publish
+```
