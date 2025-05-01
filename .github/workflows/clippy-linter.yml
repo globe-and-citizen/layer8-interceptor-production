@@ -21,6 +21,8 @@ jobs:
   clippy-linter:
     name: Lint Rust Code with Clippy
     runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -34,6 +36,8 @@ jobs:
           default: true
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v1
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Test Format
         run: cargo fmt -- --check
       - run: cargo clippy --tests --all-features --all-targets -- -D clippy::all -W clippy::eager_transmute  -W clippy::eq_op  -W clippy::erasing_op  -W clippy::ifs_same_cond  -D clippy::impl_hash_borrow_with_str_and_bytes  -D clippy::impossible_comparisons  -D clippy::infinite_iter  -W clippy::inherent_to_string_shadow_display  -D clippy::inline_fn_without_body  -D clippy::invalid_null_ptr_usage  -W clippy::invalid_regex -D clippy::invisible_characters  -D clippy::iter_next_loop  -W clippy::iter_skip_zero  -W clippy::iterator_step_by_zero  -D clippy::let_underscore_lock  -D clippy::match_str_case_mismatch  -D clippy::mem_replace_with_uninit  -D clippy::min_max  -W clippy::mut_from_ref  -W clippy::never_loop  -W clippy::non_octal_unix_permissions  -D clippy::nonsensical_open_options  -D clippy::not_unsafe_ptr_arg_deref  -W clippy::option_env_unwrap  -D clippy::out_of_bounds_indexing  -W clippy::overly_complex_bool_expr  -W clippy::panicking_overflow_checks  -D clippy::panicking_unwrap  -W clippy::possible_missing_comma  -W clippy::read_line_without_trim  -W clippy::recursive_format_impl  -W clippy::redundant_comparisons  -W clippy::unused_io_amount  -W clippy::unconditional_recursion -W clippy::unnecessary_get_then_check -W clippy::zero_repeat_side_effects -W clippy::suspicious_to_owned -W clippy::suspicious_arithmetic_impl -W clippy::empty_docs -W clippy::style -W clippy::perf
