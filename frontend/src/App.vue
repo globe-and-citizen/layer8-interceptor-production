@@ -1,48 +1,71 @@
 <template>
   <div class="wrapper">
-    <button
-        @click="openDevTools"
-        class="btn btn-primary pretty-button">
-      Click Me
-    </button>
+    <div class="button-row">
+      <button
+          @click="interceptor_wasm.test_wasm"
+          class="btn btn-primary pretty-button">
+        test_wasm
+      </button>
+      <button
+          @click="interceptor_wasm.persistence_check"
+          class="btn btn-primary pretty-button">
+        persistence_check
+      </button>
+      <button
+          @click="() => interceptor_wasm.check_encrypted_tunnel().
+        then(val => console.log('CheckEncryptedTunnel Result:', val)).
+        catch(err => console.error('CheckEncryptedTunnel Error:', err))"
+          class="btn btn-primary pretty-button">
+        check_encrypted_tunnel
+      </button>
+    </div>
+
+    <div class="button-row">
+      <button
+          @click="() => interceptor_wasm.init_encrypted_tunnel({'hello': 'world'}).
+        then(val => console.log('InitEncryptedTunnel Result:', val)).
+        catch(err => console.error('InitEncryptedTunnel Error:', err))"
+          class="btn btn-primary pretty-button">
+        init_encrypted_tunnel
+      </button>
+      <button
+          @click="interceptor_wasm.fetch('hello').
+        then(val => console.log('Fetch Result:', val)).
+        catch(err => console.error('Fetch Error:', err))"
+          class="btn btn-primary pretty-button">
+        fetch
+      </button>
+      <button
+          @click="interceptor_wasm.get_static('hello').
+        then(val => console.log('GetStatic Result:', val)).
+        catch(err => console.error('GetStatic Error:', err))"
+          class="btn btn-primary pretty-button">
+        fetch
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup>
 import * as interceptor_wasm from "interceptor-wasm";
-
-function openDevTools() {
-  interceptor_wasm.test_wasm()
-  interceptor_wasm.persistence_check()
-  interceptor_wasm.check_encrypted_tunnel().then(val => {
-    console.log("Encrypted tunnel check result: ", val)
-  })
-
-  interceptor_wasm.init_encrypted_tunnel({"hello": "world"}).then(val => {
-    console.log("Encrypted tunnel init result: ", val)
-  })
-
-  interceptor_wasm.fetch("hello").then(val => {
-    console.log("Encrypted tunnel fetch result: ", val)
-  })
-
-  interceptor_wasm.get_static("hello").then(val => {
-    console.log("Static fetch result: ", val)
-  }).catch(err => {
-    console.error("Static fetch error: ", err)
-  })
-}
 </script>
 
 <style scoped>
 .wrapper {
   display: flex;
+  flex-wrap: wrap; /* Allow buttons to wrap to a new line */
   justify-content: center;
   align-items: center;
-  height: 100vh;
+  height: 80vh;
   width: 100%; /* Ensure the wrapper takes the full width of the viewport */
   margin: 0;
   box-sizing: border-box; /* Include padding and border in the element's dimensions */
+}
+
+.button-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px; /* Add spacing between rows */
 }
 
 .pretty-button {
@@ -54,6 +77,7 @@ function openDevTools() {
   border-radius: 5px;
   cursor: pointer;
   transition: background-color 0.3s ease;
+  margin: 0 10px; /* Add horizontal spacing between buttons */
 }
 
 .pretty-button:hover {
