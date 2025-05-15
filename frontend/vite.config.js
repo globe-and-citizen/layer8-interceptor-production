@@ -7,4 +7,7 @@ export default defineConfig({
     vue(),
     wasm()
   ],
+  server: {
+    open: true, // Automatically open the browser
+  }
 })

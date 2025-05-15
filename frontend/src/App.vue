@@ -44,10 +44,25 @@
       </button>
     </div>
   </div>
+  <div class="upload-row">
+    <input
+        type="file"
+        @change="handleFileUpload"
+        class="upload-input"
+    />
+  </div>
 </template>
 
 <script setup>
 import * as interceptor_wasm from "interceptor-wasm";
+
+const handleFileUpload = (event) => {
+  const file = event.target.files[0];
+  if (file) {
+    console.log("Uploaded file:", file);
+    interceptor_wasm.save_image(file.name, file);
+  }
+};
 </script>
 
 <style scoped>
@@ -84,4 +99,17 @@ import * as interceptor_wasm from "interceptor-wasm";
   background-color: #0056b3;
 }
 
+.upload-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.upload-input {
+  padding: 10px;
+  font-size: 16px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  cursor: pointer;
+}
 </style>
