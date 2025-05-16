@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{console, window, IdbFactory, IdbDatabase, IdbOpenDbRequest, IdbRequest,
               IdbTransactionMode, DomException};
 use once_cell::unsync::OnceCell;
+use wasm_bindgen_futures::js_sys;
 
 // thread_local! is used to safely manage the global DB variable in a way that is compatible with
 // both the current single-threaded WASM environment and potential future multi-threaded scenarios
@@ -137,4 +138,45 @@ pub fn save_image(filename: String, data: web_sys::Blob) {
             console::warn_1(&"Database is not initialized.".into());
         }
     });
+}
+
+#[wasm_bindgen]
+pub async fn get_image(keyname: String) -> Result<JsValue, JsValue> {
+    let promise = js_sys::Promise::new(&mut |resolve, reject| {
+
+        let db = DB.with(|global_db| global_db.get().cloned());
+
+        if let Some(db) = db {
+            console::log_1(&format!("get_image | Get database name: {:?}", db.name()).into());
+
+            let transaction = db.transaction_with_str(DB_OBJECT_STORE).unwrap();
+            let object_store = transaction.object_store(DB_OBJECT_STORE).unwrap();
+            let object_store_request = object_store.get(&keyname.clone().into()).unwrap();
+
+            let onsuccess = Closure::once(move |event: web_sys::Event| {
+                let request = event.target().unwrap().dyn_into::<IdbRequest>().unwrap();
+                let result = request.result().unwrap().dyn_into::<web_sys::Blob>().unwrap();
+                console::log_1(&format!("get_image ObjectRequest OnSuccess: {:?}", result).into());
+                resolve.call1(&JsValue::NULL, &result).unwrap();
+            });
+            object_store_request.set_onsuccess(Some(onsuccess.as_ref().unchecked_ref()));
+            onsuccess.forget();
+
+            let onerror = Closure::once(move |event: web_sys::Event| {
+                let request = event.target().unwrap().dyn_into::<IdbRequest>().unwrap();
+                let error = request.error().unwrap().unwrap().dyn_into::<DomException>().unwrap();
+                console::error_1(&format!("ObjectRequest OnError: {:?}", error).into());
+
+                reject.call1(&JsValue::NULL, &error).unwrap();
+            });
+            object_store_request.set_onerror(Some(onerror.as_ref().unchecked_ref()));
+            onerror.forget();
+        } else {
+            console::warn_1(&"Database is not initialized.".into());
+            reject.call1(&JsValue::NULL, &"Database is not initialized.".into()).unwrap();
+        }
+    });
+
+    let result = wasm_bindgen_futures::JsFuture::from(promise).await?;
+    Ok(result)
 }

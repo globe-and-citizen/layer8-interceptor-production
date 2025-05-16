@@ -51,10 +51,18 @@
         class="upload-input"
     />
   </div>
+  <div class="upload-row">
+    <div v-if="imageUrl" class="image-preview">
+      <img :src="imageUrl" alt="Uploaded Image" class="uploaded-image"/>
+    </div>
+  </div>
 </template>
 
 <script setup>
 import * as interceptor_wasm from "interceptor-wasm";
+import {ref} from "vue";
+
+const imageUrl = ref(null);
 
 const handleFileUpload = (event) => {
   const file = event.target.files[0];
@@ -62,6 +70,14 @@ const handleFileUpload = (event) => {
     console.log("Uploaded file:", file);
     interceptor_wasm.save_image(file.name, file);
   }
+
+  interceptor_wasm.get_image(file.name)
+      .then(blob => {
+        console.log("blob", blob)
+        imageUrl.value = URL.createObjectURL(blob);
+      }).catch(err => {
+    console.log(err)
+  })
 };
 </script>
 
@@ -71,7 +87,7 @@ const handleFileUpload = (event) => {
   flex-wrap: wrap; /* Allow buttons to wrap to a new line */
   justify-content: center;
   align-items: center;
-  height: 80vh;
+  height: 40vh;
   width: 100%; /* Ensure the wrapper takes the full width of the viewport */
   margin: 0;
   box-sizing: border-box; /* Include padding and border in the element's dimensions */
@@ -111,5 +127,13 @@ const handleFileUpload = (event) => {
   border: 1px solid #ccc;
   border-radius: 5px;
   cursor: pointer;
+}
+
+.uploaded-image {
+  max-width: 100%;
+  max-height: 300px;
+  margin-top: 20px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
 }
 </style>
