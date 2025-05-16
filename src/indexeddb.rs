@@ -8,7 +8,7 @@ use wasm_bindgen_futures::js_sys;
 // both the current single-threaded WASM environment and potential future multi-threaded scenarios
 thread_local! {
     // OnceCell is thread-safe Global, the value can be set only once and can be accessed safely in multiple threads
-    static DB: OnceCell<IdbDatabase> = OnceCell::new();
+    static DB: OnceCell<IdbDatabase> = const { OnceCell::new() };
 }
 
 const DB_NAME: &str = "test_wasm_db";
