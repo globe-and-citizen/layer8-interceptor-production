@@ -68,16 +68,17 @@ const handleFileUpload = (event) => {
   const file = event.target.files[0];
   if (file) {
     console.log("Uploaded file:", file);
-    interceptor_wasm.save_image(file.name, file);
+    interceptor_wasm.save_image(file.name, file)
+        .then(res => {
+          console.log(`Image ${file.name} is saved into DB`);
+          return interceptor_wasm.get_image(file.name)
+        }).then(blob => {
+          console.log("blob", blob)
+          imageUrl.value = URL.createObjectURL(blob);
+    }).catch(err => {
+      console.log(err)
+    })
   }
-
-  interceptor_wasm.get_image(file.name)
-      .then(blob => {
-        console.log("blob", blob)
-        imageUrl.value = URL.createObjectURL(blob);
-      }).catch(err => {
-    console.log(err)
-  })
 };
 </script>
 

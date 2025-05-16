@@ -103,15 +103,16 @@ pub fn get_db() {
 }
 
 #[wasm_bindgen]
-pub fn save_image(filename: String, data: web_sys::Blob) {
-    console::log_1(&format!("Input file: {}, blob: {:?}", filename, data).into());
-    DB.with(move |global_db| {
-        if let Some(db) = global_db.get() {
+pub async fn save_image(filename: String, data: web_sys::Blob) -> Result<JsValue, JsValue> {
+    let promise = js_sys::Promise::new(&mut |resolve, reject| {
+        let db = DB.with(|global_db| global_db.get().cloned());
+
+        if let Some(db) = db {
             console::log_1(&format!("Get database name: {:?}", db.name()).into());
 
             let transaction = db.transaction_with_str_and_mode(DB_OBJECT_STORE, IdbTransactionMode::Readwrite).unwrap();
 
-            transaction.set_oncomplete(Some(Closure::once_into_js(|| {
+            transaction.set_oncomplete(Some(Closure::once_into_js(|| { // is it necessary to announce that a transaction is completed?
                 console::log_1(&"Transaction completed!".into())
             }).as_ref().unchecked_ref()));
 
@@ -123,27 +124,35 @@ pub fn save_image(filename: String, data: web_sys::Blob) {
 
             let object_store = transaction.object_store(DB_OBJECT_STORE).unwrap();
 
-            let object_store_request = object_store.add_with_key(&JsValue::from(data), &filename.into()).unwrap();
+            let object_store_request = object_store.add_with_key(&JsValue::from(data.clone()), &filename.clone().into()).unwrap();
 
-            object_store_request.set_onsuccess(Some(Closure::once_into_js(|| {
+            object_store_request.set_onsuccess(Some(Closure::once_into_js(move |event: web_sys::Event| {
                 console::log_1(&"Image is added to db".into());
+                let request = event.target().unwrap().dyn_into::<IdbRequest>().unwrap();
+                let result = request.result().unwrap();
+                resolve.call1(&JsValue::NULL, &result).unwrap();
             }).as_ref().unchecked_ref()));
 
-            object_store_request.set_onerror(Some(Closure::once_into_js(|event: web_sys::Event| {
+            object_store_request.set_onerror(Some(Closure::once_into_js(move |event: web_sys::Event| {
                 let request = event.target().unwrap().dyn_into::<IdbRequest>().unwrap();
                 let error = request.error().unwrap().unwrap().dyn_into::<DomException>().unwrap();
                 console::error_1(&format!("ObjectRequest OnError: {:?}", error).into());
+
+                reject.call1(&JsValue::NULL, &error).unwrap();
             }).as_ref().unchecked_ref()))
         } else {
             console::warn_1(&"Database is not initialized.".into());
+            resolve.call1(&JsValue::NULL, &"Database is not initialized.".into()).unwrap();
         }
     });
+
+    let result = wasm_bindgen_futures::JsFuture::from(promise).await?;
+    Ok(result)
 }
 
 #[wasm_bindgen]
 pub async fn get_image(keyname: String) -> Result<JsValue, JsValue> {
     let promise = js_sys::Promise::new(&mut |resolve, reject| {
-
         let db = DB.with(|global_db| global_db.get().cloned());
 
         if let Some(db) = db {
