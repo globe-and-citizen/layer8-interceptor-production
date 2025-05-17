@@ -111,19 +111,7 @@ pub async fn save_image(filename: String, data: web_sys::Blob) -> Result<JsValue
             console::log_1(&format!("Get database name: {:?}", db.name()).into());
 
             let transaction = db.transaction_with_str_and_mode(DB_OBJECT_STORE, IdbTransactionMode::Readwrite).unwrap_throw();
-
-            transaction.set_oncomplete(Some(Closure::once_into_js(|| { // is it necessary to announce that a transaction is completed?
-                console::log_1(&"Transaction completed!".into())
-            }).as_ref().unchecked_ref()));
-
-            transaction.set_onerror(Some(Closure::once_into_js(|event: web_sys::Event| {
-                let request = event.target().unwrap_throw().dyn_into::<IdbRequest>().unwrap_throw();
-                let error = request.error().unwrap_throw().unwrap_throw().dyn_into::<DomException>().unwrap_throw();
-                console::error_1(&format!("Transaction OnError: {:?}", error).into());
-            }).as_ref().unchecked_ref()));
-
             let object_store = transaction.object_store(DB_OBJECT_STORE).unwrap_throw();
-
             let object_store_request = object_store.add_with_key(&JsValue::from(data.clone()), &filename.clone().into()).unwrap_throw();
 
             object_store_request.set_onsuccess(Some(Closure::once_into_js(move |event: web_sys::Event| {
