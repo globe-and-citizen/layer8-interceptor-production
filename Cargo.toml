@@ -9,4 +9,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 wasm-bindgen = "0.2.100"
 wasm-bindgen-futures = "0.4.50"
-web-sys = { version = "0.3.77", features = ["console"] }
+web-sys = { version = "0.3.77", features = ["console", "Window", "Blob", "Event", "IdbTransactionMode",
+    "IdbFactory", "IdbDatabase", "IdbTransaction", "IdbOpenDbRequest", "DomStringList", "IdbObjectStore",
+    "IdbRequest", "IdbObjectStoreParameters", "DomException"] }
+once_cell = "1.21.3"
