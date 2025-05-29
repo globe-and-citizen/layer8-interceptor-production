@@ -43,13 +43,10 @@ pub struct Backend {
 impl Backend {
     #[wasm_bindgen(constructor)]
     pub fn new(config: BackendConfig) -> Backend {
-        console::log_1(&format!("Backend created with address: {}", config.base_url).into());
         Backend {config}
     }
 
     async fn get(&self, url: &String, headers: HeaderMap) -> Result<JsValue, JsValue> {
-        console::log_1(&format!("GET request to: {} with headers {:?}", url, headers).into());
-
         let response = reqwest::Client::new()
             .get(url)
             .headers(headers)
@@ -58,38 +55,28 @@ impl Backend {
             .map_err(|e| JsValue::from_str(&format!("Request failed: {}", e)))?;
 
         let body_bytes = response.bytes().await?;
-
-        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-
-        console::log_1(&format!("Response body: {:?}", body).into());
-        Ok(serde_wasm_bindgen::to_value(&body).unwrap())
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_throw();
+        Ok(serde_wasm_bindgen::to_value(&body).unwrap_throw())
     }
 
     async fn post(&self, url: &String, headers: HeaderMap, body: serde_json::Value) -> Result<JsValue, JsValue> {
-        console::log_1(&format!("POST request to: {} with headers {:?}", url, headers).into());
-
         let response = reqwest::Client::new()
             .post(url)
             .headers(headers)
-            .body(serde_json::to_string(&body).unwrap())
+            .body(serde_json::to_string(&body).unwrap_throw())
             .send()
             .await
             .map_err(|e| JsValue::from_str(&format!("Request failed: {}", e)))?;
 
         let body_bytes = response.bytes().await?;
-
-        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-
-        console::log_1(&format!("Response body: {:?}", body).into());
-        Ok(serde_wasm_bindgen::to_value(&body).unwrap())
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_throw();
+        Ok(serde_wasm_bindgen::to_value(&body).unwrap_throw())
     }
 
     pub async fn login(&self, username: String, password: String) -> Result<JsValue, JsValue> {
-        console::log_1(&format!("Logging in with username: {}", username).into());
-
         let url = self.config.base_url.clone() + &self.config.login;
         let mut headers = HeaderMap::new();
-        headers.insert("Content-Type", "application/json".parse().unwrap());
+        headers.insert("Content-Type", "application/json".parse().unwrap_throw());
 
         let body = serde_json::json!({
             "username": username,
@@ -100,11 +87,9 @@ impl Backend {
     }
 
     pub async fn register(&self, username: String, password: String) -> Result<JsValue, JsValue> {
-        console::log_1(&format!("Registering with username: {}", username).into());
-
         let url = self.config.base_url.clone() + &self.config.register;
         let mut headers = HeaderMap::new();
-        headers.insert("Content-Type", "application/json".parse().unwrap());
+        headers.insert("Content-Type", "application/json".parse().unwrap_throw());
 
         let body = serde_json::json!({
             "username": username,
@@ -116,47 +101,36 @@ impl Backend {
 
     #[wasm_bindgen]
     pub async fn get_images(&self, id: Option<String>, token: String) -> Result<JsValue, JsValue> {
-        console::log_1(&format!("Fetching images with id: {:?}", id).into());
-
         let mut url = self.config.base_url.clone() + &self.config.get_images_path;
         if let Some(id) = id {
             url = self.config.base_url.clone() + &self.config.get_image_path.replace("{}", &id);
         }
 
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", token.parse().unwrap());
-
-        console::log_1(&format!("headers {:?}", headers).into());
+        headers.insert("Authorization", token.parse().unwrap_throw());
         self.get(&url, headers).await
     }
 
     #[wasm_bindgen]
     pub async fn get_poems(&self, id: Option<String>, token: String) -> Result<JsValue, JsValue> {
-        console::log_1(&format!("Fetching poems with id: {:?}", id).into());
-
         let mut url = self.config.base_url.clone() + &self.config.get_poems_path;
         if let Some(id) = id {
-            url = self.config.base_url.clone() + format!("{}{}", &self.config.get_poem_path, id).as_str();
+            url = self.config.base_url.clone() + &self.config.get_poem_path.replace("{}", &id);
         }
 
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", token.parse().unwrap());
+        headers.insert("Authorization", token.parse().unwrap_throw());
 
-
-        console::log_1(&format!("headers {:?}", headers).into());
         self.get(&url, headers).await
     }
 
     #[wasm_bindgen]
     pub async fn get_profile(&self, token: String) -> Result<JsValue, JsValue> {
-        console::log_1(&"Fetching profile".into());
-
         let url = self.config.base_url.clone() + &self.config.get_profile_path;
 
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", token.parse().unwrap());
+        headers.insert("Authorization", token.parse().unwrap_throw());
 
-        console::log_1(&format!("headers {:?}", headers).into());
         self.get(&url, headers).await
     }
 }
