@@ -1,4 +1,4 @@
 mod utils;
 mod indexeddb;
-mod backend;
+mod wgp_backend;
 

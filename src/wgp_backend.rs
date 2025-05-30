@@ -5,7 +5,7 @@ use serde_wasm_bindgen;
 
 
 #[wasm_bindgen(getter_with_clone)]
-pub struct BackendConfig {
+pub struct WGPBackendConfig {
     pub base_url: String,
     pub login: String,
     pub register: String,
@@ -17,11 +17,11 @@ pub struct BackendConfig {
 }
 
 #[wasm_bindgen]
-impl BackendConfig {
+impl WGPBackendConfig {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> BackendConfig {
+    pub fn new() -> WGPBackendConfig {
         console::log_1(&format!("BackendConfig created with base_url").into());
-        BackendConfig {
+        WGPBackendConfig {
             base_url: "http://localhost:6191".to_string(),
             login: "/login".to_string(),
             register: "/register".to_string(),
@@ -35,15 +35,15 @@ impl BackendConfig {
 }
 
 #[wasm_bindgen]
-pub struct Backend {
-    config: BackendConfig
+pub struct WGPBackend {
+    config: WGPBackendConfig
 }
 
 #[wasm_bindgen]
-impl Backend {
+impl WGPBackend {
     #[wasm_bindgen(constructor)]
-    pub fn new(config: BackendConfig) -> Backend {
-        Backend {config}
+    pub fn new(config: WGPBackendConfig) -> WGPBackend {
+        WGPBackend {config}
     }
 
     async fn get(&self, url: &String, headers: HeaderMap) -> Result<JsValue, JsValue> {
