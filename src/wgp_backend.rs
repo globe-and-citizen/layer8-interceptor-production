@@ -2,7 +2,7 @@ use reqwest::header::HeaderMap;
 use wasm_bindgen::prelude::*;
 use web_sys::{console};
 use serde_wasm_bindgen;
-
+use bytes::Bytes;
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct WGPBackendConfig {
@@ -20,7 +20,6 @@ pub struct WGPBackendConfig {
 impl WGPBackendConfig {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WGPBackendConfig {
-        console::log_1(&format!("BackendConfig created with base_url").into());
         WGPBackendConfig {
             base_url: "http://localhost:6191".to_string(),
             login: "/login".to_string(),
@@ -54,7 +53,13 @@ impl WGPBackend {
             .await
             .map_err(|e| JsValue::from_str(&format!("Request failed: {}", e)))?;
 
-        let body_bytes = response.bytes().await?;
+        let body_bytes = match response.bytes().await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                console::error_1(&format!("Cannot read response body: {}", e).into());
+                Bytes::from(vec![])
+            }
+        };
         let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_throw();
         Ok(serde_wasm_bindgen::to_value(&body).unwrap_throw())
     }
@@ -68,7 +73,14 @@ impl WGPBackend {
             .await
             .map_err(|e| JsValue::from_str(&format!("Request failed: {}", e)))?;
 
-        let body_bytes = response.bytes().await?;
+        let body_bytes = match response.bytes().await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                console::error_1(&format!("Cannot read response body: {}", e).into());
+                Bytes::from(vec![])
+            }
+        };
+
         let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_throw();
         Ok(serde_wasm_bindgen::to_value(&body).unwrap_throw())
     }
