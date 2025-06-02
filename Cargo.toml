@@ -13,3 +13,10 @@ web-sys = { version = "0.3.77", features = ["console", "Window", "Blob", "Event"
     "IdbFactory", "IdbDatabase", "IdbTransaction", "IdbOpenDbRequest", "DomStringList", "IdbObjectStore",
     "IdbRequest", "IdbObjectStoreParameters", "DomException"] }
 once_cell = "1.21.3"
+ring = "0.17.8"
+hmac = "0.12"
+sha2 = "0.10"
+curve25519-dalek = "4.1.1"
+x25519-dalek = {version="^2.0.1", features = ["static_secrets"] }
+rand_core = {version="0.6.4", features = ["std"]}
+rand = "0.9.1"
