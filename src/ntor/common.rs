@@ -1,4 +1,4 @@
-use rand_core::OsRng;
+use getrandom;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 pub struct PrivatePublicKeyPair {
@@ -9,7 +9,9 @@ pub struct PrivatePublicKeyPair {
 }
 
 pub fn generate_private_public_key_pair() -> PrivatePublicKeyPair {
-    let private_key = StaticSecret::random_from_rng(OsRng);
+    let mut buf = [0u8; 32];
+    getrandom::fill(&mut buf).expect("generate random failed");
+    let private_key = StaticSecret::from(buf);
     let public_key = PublicKey::from(&private_key);
 
     PrivatePublicKeyPair {
