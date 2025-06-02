@@ -1,8 +1,16 @@
-use crate::ntor::common::{generate_private_public_key_pair, InitSessionMessage, InitSessionResponse, PrivatePublicKeyPair};
+use crate::ntor::common::{
+    generate_private_public_key_pair,
+    InitSessionMessage,
+    InitSessionResponse,
+    PrivatePublicKeyPair,
+    Certificate
+};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
+use wasm_bindgen::prelude::*;
 use x25519_dalek::PublicKey;
 
+#[wasm_bindgen]
 pub struct Server {
     static_key_pair: PrivatePublicKeyPair,
     ephemeral_key_pair: PrivatePublicKeyPair,
@@ -10,7 +18,10 @@ pub struct Server {
     shared_secret: Option<Vec<u8>>,
 }
 
+#[wasm_bindgen]
 impl Server {
+
+    #[wasm_bindgen(constructor)]
     pub fn new(server_id: String) -> Self {
         // In the future, implementations of static and ephemeral key pair generation should differ.
         Self{
@@ -24,7 +35,8 @@ impl Server {
         }
     }
 
-    pub fn get_certificate(&self) -> crate::ntor::common::Certificate {
+    #[wasm_bindgen]
+    pub fn get_certificate(&self) -> Certificate {
         // Upon implementation and deployment, it's the Service Provider that will create and then upload a certificate to the Layer8 Authentication Server. Likely, Layer8 will also provide the necessary functions to create one for the client.
         crate::ntor::common::Certificate {
             public_key: self.static_key_pair.public_key,
@@ -32,6 +44,7 @@ impl Server {
         }
     }
 
+    #[wasm_bindgen]
     pub fn accept_init_session_request(&mut self, init_msg: &InitSessionMessage) -> InitSessionResponse {
         println!("Server:");
 
