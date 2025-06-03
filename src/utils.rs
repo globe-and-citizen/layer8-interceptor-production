@@ -1,5 +1,6 @@
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::js_sys;
+use js_sys;
 use web_sys::console;
 
 #[wasm_bindgen]
@@ -46,4 +47,17 @@ pub async fn get_static(uri: String) -> Result<JsValue, JsValue> {
     let promise = js_sys::Promise::reject(&"Check promise result in error".into());
     let result = wasm_bindgen_futures::JsFuture::from(promise).await?;
     Ok(result)
+}
+
+pub fn js_map_to_headers(headers: &js_sys::Map) -> HeaderMap {
+    let mut header_map = HeaderMap::new();
+
+    headers.for_each(&mut |value, key| {
+        if let (Some(header_name), Some(val)) = (key.as_string(), value.as_string()) {
+            if let (Ok(name), Ok(value)) = (header_name.parse::<HeaderName>(), val.parse::<HeaderValue>()) {
+                header_map.insert(name, value);
+            }
+        }
+    });
+    header_map
 }
