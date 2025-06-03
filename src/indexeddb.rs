@@ -46,15 +46,15 @@ pub fn start() -> Result<(), JsError> {
 
     let onsuccess_handler = |event: web_sys::Event| {
         // Get the result of the request -> feature: EventTarget
-        let target = event.target().unwrap();
+        let target = event.target().unwrap_throw();
 
         // convert the target to IdbOpenDbRequest
-        let request = target.dyn_into::<IdbOpenDbRequest>().unwrap();
-        let result = request.result().unwrap();
+        let request = target.dyn_into::<IdbOpenDbRequest>().unwrap_throw();
+        let result = request.result().unwrap_throw();
 
-        let db = result.dyn_into::<IdbDatabase>().unwrap();
+        let db = result.dyn_into::<IdbDatabase>().unwrap_throw();
 
-        DB.with(|global_db| global_db.set(db.clone()).unwrap());
+        DB.with(|global_db| global_db.set(db.clone()).unwrap_throw());
 
         console::log_1(&format!("Database opened successfully: {:?}", db.name()).into());
         console::log_1(&format!("Database version: {:?}", db.version()).into());
@@ -64,8 +64,8 @@ pub fn start() -> Result<(), JsError> {
     db_request.set_onsuccess(Some(onsuccess_handler_closure.as_ref().unchecked_ref()));
 
     let onerror = Closure::once_into_js(move |event: web_sys::Event| {
-        let request = event.target().unwrap().dyn_into::<IdbOpenDbRequest>().unwrap();
-        let error = request.error().unwrap().unwrap().dyn_into::<DomException>().unwrap();
+        let request = event.target().unwrap_throw().dyn_into::<IdbOpenDbRequest>().unwrap_throw();
+        let error = request.error().unwrap_throw().unwrap_throw().dyn_into::<DomException>().unwrap_throw();
         console::error_1(&format!("Error opening database: {:?}", error).into());
     });
 
@@ -73,8 +73,8 @@ pub fn start() -> Result<(), JsError> {
 
     // The onupgradeneeded event is triggered when the database is being created or upgraded before onsuccess is called.
     let onupgradeneeded = Closure::once_into_js(move |event: web_sys::Event| {
-        let request = event.target().unwrap().dyn_into::<IdbOpenDbRequest>().unwrap();
-        let db = request.result().unwrap().dyn_into::<IdbDatabase>().unwrap();
+        let request = event.target().unwrap_throw().dyn_into::<IdbOpenDbRequest>().unwrap_throw();
+        let db = request.result().unwrap_throw().dyn_into::<IdbDatabase>().unwrap_throw();
 
         console::log_1(&format!("Upgrading database: {:?}", db.name()).into());
         // Create an object store if it doesn't exist -> feature needed web_sys::DomStringList
@@ -108,14 +108,11 @@ pub async fn save_image(filename: String, data: web_sys::Blob) -> Result<JsValue
         let db = DB.with(|global_db| global_db.get().cloned());
 
         if let Some(db) = db {
-            console::log_1(&format!("Get database name: {:?}", db.name()).into());
-
             let transaction = db.transaction_with_str_and_mode(DB_OBJECT_STORE, IdbTransactionMode::Readwrite).unwrap_throw();
             let object_store = transaction.object_store(DB_OBJECT_STORE).unwrap_throw();
             let object_store_request = object_store.add_with_key(&JsValue::from(data.clone()), &filename.clone().into()).unwrap_throw();
 
             object_store_request.set_onsuccess(Some(Closure::once_into_js(move |event: web_sys::Event| {
-                console::log_1(&"Image is added to db".into());
                 let request = event.target().unwrap_throw().dyn_into::<IdbRequest>().unwrap_throw();
                 let result = request.result().unwrap_throw();
                 resolve.call1(&JsValue::NULL, &result).unwrap_throw();
@@ -144,17 +141,21 @@ pub async fn get_image(keyname: String) -> Result<JsValue, JsValue> {
         let db = DB.with(|global_db| global_db.get().cloned());
 
         if let Some(db) = db {
-            console::log_1(&format!("get_image | Get database name: {:?}", db.name()).into());
-
             let transaction = db.transaction_with_str(DB_OBJECT_STORE).unwrap_throw();
             let object_store = transaction.object_store(DB_OBJECT_STORE).unwrap_throw();
             let object_store_request = object_store.get(&keyname.clone().into()).unwrap_throw();
 
+            let value = keyname.clone();
             let onsuccess = Closure::once(move |event: web_sys::Event| {
                 let request = event.target().unwrap_throw().dyn_into::<IdbRequest>().unwrap_throw();
-                let result = request.result().unwrap_throw().dyn_into::<web_sys::Blob>().unwrap_throw();
-                console::log_1(&format!("get_image ObjectRequest OnSuccess: {:?}", result).into());
-                resolve.call1(&JsValue::NULL, &result).unwrap_throw();
+                let result = request.result().unwrap_throw();
+                match result.dyn_into::<web_sys::Blob>() {
+                    Ok(res) => resolve.call1(&JsValue::NULL, &res).unwrap_throw(),
+                    Err(e) => { // blob not found
+                        console::warn_1(&format!("No Blob found for key:{}", value).into());
+                        resolve.call1(&JsValue::NULL, &e).unwrap_throw()
+                    }
+                };
             });
             object_store_request.set_onsuccess(Some(onsuccess.as_ref().unchecked_ref()));
             onsuccess.forget();
