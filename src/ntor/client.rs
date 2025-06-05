@@ -137,7 +137,7 @@ impl Client {
     #[wasm_bindgen]
     pub fn decrypt(&self, nonce: Vec<u8>, data: Vec<u8>) -> Result<Vec<u8>, JsError> {
         if let Some(key) = self.shared_secret.clone() {
-            let mut decrypt_key = key.clone();
+            let mut decrypt_key = key.clone(); // fixme use key derivation
             decrypt_key.extend(key.clone());
             console::debug_1(&format!("decrypt input: {:?}, nonce: {:?}", data, nonce).into());
 
