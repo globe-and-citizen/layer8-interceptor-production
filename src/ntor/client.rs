@@ -1,14 +1,10 @@
-use crate::ntor::common::{
-    Certificate,
-    generate_private_public_key_pair,
-    InitSessionMessage,
-    InitSessionResponse,
-    PrivatePublicKeyPair
-};
+use crate::ntor::common::{Certificate, generate_private_public_key_pair, InitSessionMessage, InitSessionResponse, PrivatePublicKeyPair};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::*;
 use x25519_dalek::PublicKey;
+use crate::ntor::common;
+use web_sys::console;
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct Client {
@@ -55,12 +51,12 @@ impl Client {
         // ECDH Client private ephemeral * server static public key
         let taken_private_key = self.ephemeral_key_pair.private_key.take().unwrap();
         let mut ecdh_result_1 = taken_private_key.diffie_hellman(&msg.server_ephemeral_public_key).to_bytes().to_vec();
-        println!("[Debug] ECDH result 1: {:?}", ecdh_result_1);
+        // println!("[Debug] ECDH result 1: {:?}", ecdh_result_1);
         buffer.append(&mut ecdh_result_1);
 
         // ECDH Client private ephemeral * server ephemeral public Key
         let mut ecdh_result_2 = taken_private_key.diffie_hellman(&server_certificate.public_key).to_bytes().to_vec();
-        println!("[Debug] ECDH result 2: {:?}", ecdh_result_2);
+        // println!("[Debug] ECDH result 2: {:?}", ecdh_result_2);
         buffer.append(&mut ecdh_result_2);
 
         // Server id
@@ -117,4 +113,48 @@ impl Client {
         }
     }
 
+    #[wasm_bindgen]
+    pub fn encrypt(&self, data: Vec<u8>) -> Result<EncryptedData, JsError> {
+        if let Some(key) = self.shared_secret.clone() {
+            let mut encrypt_key = key.clone(); // use key derivation
+            encrypt_key.extend(key.clone());
+            // println!("Shared key: {}", hex::encode(key.clone()));
+            return match common::encrypt(encrypt_key, data) {
+                Ok((nonce, encrypted)) => Ok(EncryptedData {
+                    nonce: nonce.to_vec(),
+                    encrypted
+                }),
+                Err(err) => Err(JsError::new(err))
+            }
+        }
+        Err(JsError::new("no encryption key found"))
+    }
+
+    #[wasm_bindgen]
+    pub fn decrypt(&self, nonce: Vec<u8>, data: Vec<u8>) -> Result<Vec<u8>, JsError> {
+        if let Some(key) = self.shared_secret.clone() {
+            let mut decrypt_key = key.clone();
+            decrypt_key.extend(key.clone());
+
+            return match TryInto::<[u8; 12]>::try_into(nonce) {
+                Ok(nonce12) => {
+                    return match common::decrypt(nonce12, decrypt_key, data) {
+                        Ok(decrypted) => Ok(decrypted),
+                        Err(err) => Err(JsError::new(err))
+                    }
+                },
+                Err(err) => {
+                    console::log_1(&format!("invalid nonce: {:?}", err).into());
+                    Err(JsError::new("invalid nonce"))
+                }
+            }
+        }
+        Err(JsError::new("no decryption key found"))
+    }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+pub struct EncryptedData {
+    pub nonce: Vec<u8>,
+    pub encrypted: Vec<u8>
 }
