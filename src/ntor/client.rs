@@ -115,15 +115,19 @@ impl Client {
 
     #[wasm_bindgen]
     pub fn encrypt(&self, data: Vec<u8>) -> Result<EncryptedData, JsError> {
+        console::debug_1(&format!("encrypt input: {:?}", data).into());
         if let Some(key) = self.shared_secret.clone() {
-            let mut encrypt_key = key.clone(); // use key derivation
+            let mut encrypt_key = key.clone(); // fixme use key derivation
             encrypt_key.extend(key.clone());
             // println!("Shared key: {}", hex::encode(key.clone()));
             return match common::encrypt(encrypt_key, data) {
-                Ok((nonce, encrypted)) => Ok(EncryptedData {
-                    nonce: nonce.to_vec(),
-                    encrypted
-                }),
+                Ok((nonce, encrypted)) => {
+                    console::debug_1(&format!("encrypted: {:?}", encrypted).into());
+                    Ok(EncryptedData {
+                        nonce: nonce.to_vec(),
+                        encrypted: encrypted
+                    })
+                },
                 Err(err) => Err(JsError::new(err))
             }
         }
@@ -135,16 +139,20 @@ impl Client {
         if let Some(key) = self.shared_secret.clone() {
             let mut decrypt_key = key.clone();
             decrypt_key.extend(key.clone());
+            console::debug_1(&format!("decrypt input: {:?}, nonce: {:?}", data, nonce).into());
 
             return match TryInto::<[u8; 12]>::try_into(nonce) {
                 Ok(nonce12) => {
                     return match common::decrypt(nonce12, decrypt_key, data) {
-                        Ok(decrypted) => Ok(decrypted),
+                        Ok(decrypted) => {
+                            console::debug_1(&format!("decrypted: {:?}", decrypted).into());
+                            Ok(decrypted)
+                        },
                         Err(err) => Err(JsError::new(err))
                     }
                 },
                 Err(err) => {
-                    console::log_1(&format!("invalid nonce: {:?}", err).into());
+                    console::error_1(&format!("invalid nonce: {:?}", err).into());
                     Err(JsError::new("invalid nonce"))
                 }
             }

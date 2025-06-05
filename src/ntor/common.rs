@@ -4,6 +4,7 @@ use wasm_bindgen::prelude::*;
 use x25519_dalek::{PublicKey, StaticSecret};
 use aes_gcm::aead::{Aead, KeyInit};
 use std::convert::TryInto;
+use serde_wasm_bindgen;
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct PrivatePublicKeyPair {
@@ -32,10 +33,52 @@ pub struct Certificate {
     pub server_id: String,
 }
 
+#[wasm_bindgen]
+impl Certificate {
+    #[wasm_bindgen(constructor)]
+    pub fn new(public_key: Vec<u8>, server_id: String) -> Self {
+        let pub_key = TryInto::<[u8; 32]>::try_into(public_key).unwrap_throw();
+        Certificate {
+            public_key: PublicKey::from(pub_key),
+            server_id
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn to_json(&self) -> JsValue {
+        let data = serde_json::json!({
+            "public_key": self.public_key.to_bytes(),
+            "server_id": self.server_id
+        });
+        serde_wasm_bindgen::to_value(&data).unwrap_throw()
+    }
+
+    #[wasm_bindgen]
+    pub fn public_key(&self) -> Vec<u8> {
+        self.public_key.to_bytes().to_vec()
+    }
+}
+
 #[wasm_bindgen(getter_with_clone)]
 // In the paper, the outgoing message is ("ntor", B_id, client_ephemeral_public_key).
 pub struct InitSessionMessage {
     pub(crate) client_ephemeral_public_key: PublicKey,
+}
+
+#[wasm_bindgen]
+impl InitSessionMessage {
+    #[wasm_bindgen]
+    pub fn to_json(&self) -> JsValue {
+        let data = serde_json::json!({
+            "client_ephemeral_public_key": self.client_ephemeral_public_key.to_bytes(),
+        });
+        serde_wasm_bindgen::to_value(&data).unwrap_throw()
+    }
+
+    #[wasm_bindgen]
+    pub fn public_key(&self) -> Vec<u8> {
+        self.client_ephemeral_public_key.to_bytes().to_vec()
+    }
 }
 
 #[wasm_bindgen(getter_with_clone)]
@@ -43,6 +86,32 @@ pub struct InitSessionMessage {
 pub struct InitSessionResponse {
     pub(crate) server_ephemeral_public_key: PublicKey,
     pub t_hash: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl InitSessionResponse {
+    #[wasm_bindgen(constructor)]
+    pub fn new(public_key: Vec<u8>, t_hash: Vec<u8>) -> Self {
+        let pub_key = TryInto::<[u8; 32]>::try_into(public_key).unwrap_throw();
+        return InitSessionResponse {
+            server_ephemeral_public_key: PublicKey::from(pub_key),
+            t_hash,
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn to_json(&self) -> JsValue {
+        let data = serde_json::json!({
+            "server_ephemeral_public_key": self.server_ephemeral_public_key.to_bytes(),
+            "t_hash": self.t_hash
+        });
+        serde_wasm_bindgen::to_value(&data).unwrap_throw()
+    }
+
+    #[wasm_bindgen]
+    pub fn public_key(&self) -> Vec<u8> {
+        self.server_ephemeral_public_key.to_bytes().to_vec()
+    }
 }
 
 pub(crate) fn encrypt(key_bytes: Vec<u8>, data: Vec<u8>) -> Result<([u8; 12], Vec<u8>), &'static str> {
