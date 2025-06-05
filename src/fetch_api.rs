@@ -2,15 +2,7 @@ use std::str::FromStr;
 
 use reqwest::{Method, header::HeaderValue};
 use wasm_bindgen::{prelude::*, throw_str};
-use web_sys::{ReadableStreamDefaultReader, Request, RequestInit, ResponseInit};
-
-#[wasm_bindgen]
-extern "C" {
-    // Use `js_namespace` here to bind `console.log(..)` instead of just
-    // `log(..)`
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
+use web_sys::{ReadableStreamDefaultReader, Request, RequestInit, ResponseInit, console};
 
 /// This API is expected to be a 1:1 mapping of the Fetch API.
 /// Arguments:
@@ -18,7 +10,7 @@ extern "C" {
 /// - `options`: Optional configuration for the fetch request, which can include headers, method, body, etc.
 #[wasm_bindgen]
 pub async fn fetch(resource: JsValue, options: Option<RequestInit>) -> web_sys::Response {
-    log(&format!("Fetching resource: {:?}", resource));
+    console::log_1(&format!("Fetching resource: {:?}", resource).into());
 
     let client = reqwest::Client::new();
     let url = retrieve_resource_url(&resource);
@@ -94,14 +86,14 @@ async fn construct_js_response(resp: reqwest::Response) -> web_sys::Response {
         }
 
         // logging headers
-        log(&format!("Response Headers: {:?}", resp.headers()));
+        console::log_1(&format!("Response Headers: {:?}", resp.headers()).into());
 
         resp_init.set_headers(&js_headers);
     }
 
     let mut body = resp.bytes().await.unwrap_throw().to_vec();
 
-    log(&format!("Body {:?}", String::from_utf8_lossy(&body)));
+    console::log_1(&format!("Body {:?}", String::from_utf8_lossy(&body)).into());
     match web_sys::Response::new_with_opt_u8_array_and_init(Some(&mut body), &resp_init) {
         Ok(response) => response,
         Err(err) => {
@@ -162,7 +154,7 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
 
         if done {
             // If done, we break from the loop and return the accumulated data.
-            log(&format!("Stream read completed with {} bytes", data.len()));
+            console::log_1(&format!("Stream read completed with {} bytes", data.len()).into());
             break;
         }
 
