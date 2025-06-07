@@ -68,6 +68,26 @@
         .catch(err => console.error('Fetch Error:', err))" class="btn btn-primary pretty-button">
         Post with Body
       </button>
+
+      <!-- Test plaintext data with fecth -->
+      <button @click="interceptor_wasm.fetch('http://localhost:3000/echo', { method: 'POST', body: 'Hello, World!', headers: { 'Content-Type': 'text/plain' } }).
+        then(val => val.text().then(text => console.log('Fetch Result for Plaintext Data:', text)))
+        .catch(err => console.error('Fetch Error:', err))" class="btn btn-primary pretty-button">
+        Plaintext Data
+      </button>
+
+      <!-- Test formdata with fetch -->
+      <button @click="interceptor_wasm.fetch('http://localhost:3000/formdata', {
+        method: 'POST',
+        body: formData,
+      }).
+        then(val => val.text().then(text => console.log('Fetch Result for FormData:', text)))
+        .catch(err => console.error('Fetch Error:', err))" class="btn btn-primary pretty-button">
+        FormData
+      </button>
+
+      <!-- Form needs to handle  -->
+
     </div>
   </div>
 </template>
@@ -81,6 +101,9 @@ const fetchWithMethodBody = new Request('https://jsonplaceholder.typicode.com/po
   body: JSON.stringify({ title: 'foo', body: 'bar', userId: 1 }),
   headers: { 'Content-Type': 'application/json' }
 });
+
+const formData = new FormData();
+formData.append('message', 'Hello, World!');
 
 </script>
 
