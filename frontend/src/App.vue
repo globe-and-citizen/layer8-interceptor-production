@@ -88,6 +88,15 @@
 
       <!-- Form needs to handle  -->
 
+      <!-- Testing url params -->
+      <button @click="interceptor_wasm.fetch('http://localhost:3000/params', {
+        body: params,
+      }).
+        then(val => val.text().then(text => console.log('Fetch Result for URL Params:', text)))
+        .catch(err => console.error('Fetch Error:', err))" class="btn btn-primary pretty-button">
+        URL Params
+      </button>
+
     </div>
   </div>
 </template>
@@ -105,6 +114,8 @@ const fetchWithMethodBody = new Request('https://jsonplaceholder.typicode.com/po
 const formData = new FormData();
 formData.append('message', 'Hello, World!');
 
+const params = new URLSearchParams();
+params.append('message', 'Hello, World!');
 </script>
 
 <style scoped>
