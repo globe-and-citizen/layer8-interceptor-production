@@ -30,7 +30,7 @@
       <!-- Fetch API scenarios -->
 
       <!-- Simple Get -->
-      <button @click="interceptor_wasm.fetch('https://jsonplaceholder.typicode.com/todos/1').
+      <button @click="interceptor_wasm.fetch('http://localhost:3000/hello').
         then(val => console.log('Fetch Result for Simple Get:', {
           // iterate on and console log headers
           headers: Object.fromEntries(val.headers.entries()),
@@ -41,7 +41,7 @@
       </button>
 
       <!-- Get with an options arg -->
-      <button @click="interceptor_wasm.fetch('https://jsonplaceholder.typicode.com/posts/1', { method: 'GET' }).
+      <button @click="interceptor_wasm.fetch('http://localhost:3000/hello', { method: 'GET' }).
         then(val =>
           console.log('Fetch Result for Get with Options:', { headers: Object.fromEntries(val.headers.entries()), val })
         ).catch(err => console.error('Fetch Error:', err))" class="btn btn-primary pretty-button">
@@ -101,10 +101,10 @@
 <script setup>
 import * as interceptor_wasm from "interceptor-wasm";
 
-const simpleGetReq = new Request('https://jsonplaceholder.typicode.com/todos/1');
-const fetchWithMethodBody = new Request('https://jsonplaceholder.typicode.com/posts/1', {
-  method: 'PUT',
-  body: JSON.stringify({ title: 'foo', body: 'bar', userId: 1 }),
+const simpleGetReq = new Request('http://localhost:3000/hello');
+const fetchWithMethodBody = new Request('http://localhost:3000/hello', {
+  method: 'POST',
+  body: JSON.stringify({ name: 'FetchAPI' }),
   headers: { 'Content-Type': 'application/json' }
 });
 

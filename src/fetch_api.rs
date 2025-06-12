@@ -3,15 +3,52 @@ use std::{collections::HashMap, str::FromStr};
 // Proper error propagation with details, logging
 // Custom type to hold request.
 
-use js_sys::Object;
-use reqwest::{Method, RequestBuilder, header::HeaderValue};
+use reqwest::{
+    Method,
+    header::{HeaderMap, HeaderValue},
+};
 use wasm_bindgen::{prelude::*, throw_str};
 use web_sys::{ReadableStreamDefaultReader, Request, RequestInit, ResponseInit, console};
 
 use crate::formdata::parse_form_data_to_array;
 
-pub struct L8Request {
+#[derive(Debug, Clone, Default)]
+pub struct RequestWrapper {
+    pub url: String,
     pub method: Method,
+    pub body: Option<Vec<u8>>,
+    pub headers: HeaderMap,
+    pub params: HashMap<String, String>,
+}
+
+impl RequestWrapper {
+    pub async fn send_request(self, client: reqwest::Client) -> Result<web_sys::Response, JsValue> {
+        let mut req_builder = client.request(self.method, self.url);
+
+        // set the body if it exists
+        if let Some(body) = self.body {
+            req_builder = req_builder.body(body);
+        }
+
+        // set the url params if they exist
+        if !self.params.is_empty() {
+            let encoded_params = self.params.into_iter().collect::<Vec<(String, String)>>();
+            req_builder = req_builder.query(encoded_params.as_slice());
+        }
+
+        // set the headers if they exist
+        if !self.headers.is_empty() {
+            req_builder = req_builder.headers(self.headers);
+        }
+
+        let resp = req_builder
+            .send()
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to send request: {}", e)))?;
+
+        // Constructing a web_sys::Response from the reqwest::Response
+        Ok(construct_js_response(resp).await)
+    }
 }
 
 /// This API is expected to be a 1:1 mapping of the Fetch API.
@@ -30,37 +67,42 @@ pub async fn fetch(
 
     // using the Request object to fetch the resource
     if let Some(req) = resource.dyn_ref::<Request>() {
-        let method = Method::from_str(&req.method().trim().to_uppercase())
-            .map_err(|e| JsValue::from_str(&format!("Invalid HTTP method: {}", e)))?;
-
-        let data = match req.body() {
-            Some(val) => readable_stream_to_bytes(val).await?,
-            None => Vec::new(),
+        let mut req_wrapper = RequestWrapper {
+            method: Method::from_str(&req.method().trim().to_uppercase())
+                .map_err(|e| JsValue::from_str(&format!("Invalid HTTP method: {}", e)))?,
+            url,
+            ..Default::default()
         };
 
-        let headers = js_headers_to_reqwest_headers(JsValue::from(req.headers()))?;
-        let resp = client
-            .request(method, url)
-            .headers(headers)
-            .body(data)
-            .send()
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to fetch resource: {}", e)))?;
+        req_wrapper.body = match req.body() {
+            Some(val) => Some(readable_stream_to_bytes(val).await?),
+            None => None,
+        };
 
-        return Ok(construct_js_response(resp).await);
+        req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
+
+        let resp = req_wrapper
+            .send_request(client)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to send request: {:?}", e)))?;
+
+        return Ok(resp);
     }
 
     // Using the resource URL and options object to fetch the resource
     if let Some(options) = options {
-        let method = match options.get_method() {
+        let mut req_wrapper = RequestWrapper {
+            url,
+            ..Default::default()
+        };
+
+        req_wrapper.method = match options.get_method() {
             Some(val) => Method::from_str(&val.trim().to_uppercase()).unwrap_throw(),
             None => Method::GET,
         };
 
-        let mut req_builder = client.request(method, &url);
-
         let body = options.get_body();
-        if body != JsValue::UNDEFINED || body != JsValue::NULL {
+        if !body.is_undefined() && !body.is_null() {
             let body = parse_js_request_body(body).await.map_err(|e| {
                 JsValue::from_str(&format!(
                     "Failed to parse request body: {}",
@@ -69,15 +111,25 @@ pub async fn fetch(
             })?;
 
             match body {
-                Body::Bytes(bytes) => req_builder = req_builder.body(bytes),
+                Body::Bytes(bytes) => req_wrapper.body = Some(bytes),
 
-                Body::Params(params) => {
-                    let encoded_params = params.into_iter().collect::<Vec<(String, String)>>();
-                    req_builder = req_builder.query(encoded_params.as_slice());
-                }
+                Body::Params(params) => req_wrapper.params = params,
 
                 Body::FormData(form_data) => {
-                    req_builder = parse_form_data(req_builder, form_data).await?
+                    let boundary = uuid::Uuid::new_v4().to_string();
+                    let data = parse_form_data_to_array(form_data, boundary.clone()).await?;
+
+                    // set content type for multipart/form-data
+                    req_wrapper.headers.append(
+                        "Content-Type",
+                        HeaderValue::from_str(&format!(
+                            "multipart/form-data; boundary={}",
+                            boundary
+                        ))
+                        .unwrap_throw(),
+                    );
+
+                    req_wrapper.body = Some(data);
                 }
 
                 Body::File(file) => {
@@ -88,24 +140,25 @@ pub async fn fetch(
                         .await
                         .unwrap_throw();
                     let uint8_array = js_sys::Uint8Array::new(&file_bytes);
-                    req_builder = req_builder.body(uint8_array.to_vec());
+
+                    req_wrapper.body = Some(uint8_array.to_vec());
                 }
             }
         }
 
         if options.get_headers() != JsValue::UNDEFINED || options.get_headers() != JsValue::NULL {
-            let headers = js_headers_to_reqwest_headers(options.get_headers())?;
-            req_builder = req_builder.headers(headers);
+            let headers = headers_to_reqwest_headers(options.get_headers())?;
+            req_wrapper.headers.extend(headers);
         }
 
-        let resp = req_builder
-            .send()
+        let resp = req_wrapper
+            .send_request(client)
             .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to fetch resource: {}", e)))?;
+            .map_err(|e| JsValue::from_str(&format!("Failed to fetch resource: {:?}", e)))?;
 
         console::log_1(&format!("Response: {:?}", resp).into());
 
-        return Ok(construct_js_response(resp).await);
+        return Ok(resp);
     }
 
     // using only the URL to fetch the resource, with assumed GET method
@@ -200,7 +253,7 @@ fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
 
 // Ref <https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#setting_headers>
 // we expect the headers to be either Headers or an Object
-fn js_headers_to_reqwest_headers(
+fn headers_to_reqwest_headers(
     js_headers: JsValue,
 ) -> Result<reqwest::header::HeaderMap<HeaderValue>, JsValue> {
     // If the headers are undefined or null, we return an empty HeaderMap
@@ -210,56 +263,40 @@ fn js_headers_to_reqwest_headers(
 
     // We first check if the headers are an instance of web_sys::Headers
     if let Some(headers) = js_headers.dyn_ref::<web_sys::Headers>() {
-        let mut reqwest_headers = reqwest::header::HeaderMap::new();
-        for entry in headers.entries() {
-            // [key, value] item array
-            let key_value_entry = js_sys::Array::from(&entry?);
-            let key = key_value_entry.get(0);
-            let value = key_value_entry.get(1);
-
-            // Convert the key and value to reqwest's HeaderName and HeaderValue
-            let header_name = reqwest::header::HeaderName::from_str(
-                &key.as_string().unwrap_throw(),
-            )
-            .map_err(|_| {
-                JsValue::from_str(&format!(
-                    "Invalid header name: {}",
-                    key.as_string().unwrap_throw()
-                ))
-            })?;
-            let header_value = reqwest::header::HeaderValue::from_str(
-                &value.as_string().unwrap_throw(),
-            )
-            .map_err(|_| {
-                JsValue::from_str(&format!(
-                    "Invalid header value: {}",
-                    value.as_string().unwrap_throw()
-                ))
-            })?;
-
-            reqwest_headers.insert(header_name, header_value);
-        }
+        return js_headers_to_reqwest_headers(headers);
     }
+
+    console::log_1(&format!("Headers typeof: {:?}", js_headers.js_typeof()).into());
 
     // we can then check if the headers are an instance of js_sys::Object
-    if let Some(headers) = js_headers.dyn_ref::<Object>() {
+    if !js_headers.is_object() {
+        return Err(JsValue::from_str(
+            "Invalid headers type. Expected Headers or Object.",
+        ));
+    }
+
+    let headers = js_headers.dyn_ref::<js_sys::Object>().unwrap_throw();
+
+    // In some cases the headers might be a web_sys::Headers object; this is the case for Request objects.
+    if let Some(headers) = headers.dyn_ref::<web_sys::Headers>() {
+        // If the headers are a web_sys::Headers object, we can convert them directly
+        return js_headers_to_reqwest_headers(headers);
+    }
+
+    // [key, value] item array
+    let entries = js_sys::Object::entries(headers);
+    let mut reqwest_headers = reqwest::header::HeaderMap::new();
+    for entry in entries.iter() {
         // [key, value] item array
-        let entries = js_sys::Object::entries(headers);
+        let key_value_entry = js_sys::Array::from(&entry);
+        let key = key_value_entry.get(0);
+        let value = key_value_entry.get(1);
+        if key.is_null() || key.is_undefined() || !key.is_string() {
+            continue;
+        }
 
-        let mut reqwest_headers = reqwest::header::HeaderMap::new();
-        for entry in entries.iter() {
-            // [key, value] item array
-            let key_value_entry = js_sys::Array::from(&entry);
-            let key = key_value_entry.get(0);
-            let value = key_value_entry.get(1);
-            if key.is_null() || key.is_undefined() || !key.is_string() {
-                continue;
-            }
-
-            // Convert the key and value to reqwest's HeaderName and HeaderValue
-            let header_name = reqwest::header::HeaderName::from_str(
-                &key.as_string().unwrap_throw(),
-            )
+        // Convert the key and value to reqwest's HeaderName and HeaderValue
+        let header_name = reqwest::header::HeaderName::from_str(&key.as_string().unwrap_throw())
             .map_err(|_| {
                 JsValue::from_str(&format!(
                     "Invalid header name: {}",
@@ -267,25 +304,54 @@ fn js_headers_to_reqwest_headers(
                 ))
             })?;
 
-            let header_value = reqwest::header::HeaderValue::from_str(
-                &value.as_string().unwrap_throw(),
-            )
-            .map_err(|_| {
-                JsValue::from_str(&format!(
-                    "Invalid header value: {}",
-                    value.as_string().unwrap_throw()
-                ))
-            })?;
+        let header_value = reqwest::header::HeaderValue::from_str(
+            &value.as_string().unwrap_throw(),
+        )
+        .map_err(|_| {
+            JsValue::from_str(&format!(
+                "Invalid header value: {}",
+                value.as_string().unwrap_throw()
+            ))
+        })?;
 
-            reqwest_headers.insert(header_name, header_value);
-        }
-
-        return Ok(reqwest_headers);
+        reqwest_headers.insert(header_name, header_value);
     }
 
-    Err(JsValue::from_str(
-        "Invalid headers type. Expected Headers or Object.",
-    ))
+    Ok(reqwest_headers)
+}
+
+fn js_headers_to_reqwest_headers(
+    headers: &web_sys::Headers,
+) -> Result<reqwest::header::HeaderMap<HeaderValue>, JsValue> {
+    let mut reqwest_headers = reqwest::header::HeaderMap::new();
+    for entry in headers.entries() {
+        // [key, value] item array
+        let key_value_entry = js_sys::Array::from(&entry?);
+        let key = key_value_entry.get(0);
+        let value = key_value_entry.get(1);
+
+        // Convert the key and value to reqwest's HeaderName and HeaderValue
+        let header_name = reqwest::header::HeaderName::from_str(&key.as_string().unwrap_throw())
+            .map_err(|_| {
+                JsValue::from_str(&format!(
+                    "Invalid header name: {}",
+                    key.as_string().unwrap_throw()
+                ))
+            })?;
+        let header_value = reqwest::header::HeaderValue::from_str(
+            &value.as_string().unwrap_throw(),
+        )
+        .map_err(|_| {
+            JsValue::from_str(&format!(
+                "Invalid header value: {}",
+                value.as_string().unwrap_throw()
+            ))
+        })?;
+
+        reqwest_headers.insert(header_name, header_value);
+    }
+
+    Ok(reqwest_headers)
 }
 
 enum Body {
@@ -416,22 +482,19 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
     Ok(data)
 }
 
-// This operation can be improved with streaming uploads but for now we will
-// parse the FormData into an array of Uint8Array chunks.
-async fn parse_form_data(
-    req_builder: RequestBuilder,
-    formdata: web_sys::FormData,
-) -> Result<RequestBuilder, JsValue> {
-    // TODO: should we use a constant boundary for each request?
-    let boundary = uuid::Uuid::new_v4().to_string();
-    let data = parse_form_data_to_array(formdata, boundary.clone()).await?;
+// // This operation can be improved with streaming uploads but for now we will
+// // parse the FormData into an array of Uint8Array chunks.
+// async fn parse_form_data(formdata: web_sys::FormData) -> Result<Vec<u8>, JsValue> {
+//     // TODO: should we use a constant boundary for each request?
+//     let boundary = uuid::Uuid::new_v4().to_string();
+//     let data = parse_form_data_to_array(formdata, boundary.clone()).await?;
 
-    console::log_1(&format!("Parsed Formdata is \n{}", String::from_utf8_lossy(&data)).into());
+//     console::log_1(&format!("Parsed Formdata is \n{}", String::from_utf8_lossy(&data)).into());
 
-    let req_builder = req_builder.body(data).header(
-        "Content-Type",
-        format!("multipart/form-data; boundary={}", boundary),
-    );
+//     let req_builder = req_builder.body(data).header(
+//         "Content-Type",
+//         format!("multipart/form-data; boundary={}", boundary),
+//     );
 
-    Ok(req_builder)
-}
+//     Ok(data)
+// }

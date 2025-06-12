@@ -24,7 +24,6 @@ const storage = multer.diskStorage({
     }
 });
 
-
 const upload = multer({ storage: storage });
 
 // Middleware to parse JSON bodies
@@ -79,6 +78,18 @@ app.post('/echo', (req, res) => {
     const body = req.body; // Extract message from the request body
     console.log('Received message:', body);
     res.send(body);
+});
+
+app.get('/hello', (req, res) => {
+    res.send(`Hello, World!`); // Respond with a greeting
+});
+
+app.post('/hello', (req, res) => {
+
+    console.log('Body received:', req.body); // Log the request body
+
+    const name = req.body.name || 'World'; // Extract name from the request body
+    res.send(`Hello, ${name}!`); // Respond with a greeting
 });
 
 // Start the server
