@@ -3,6 +3,7 @@ use wasm_bindgen_futures::js_sys;
 use web_sys::console;
 
 pub mod fetch_api;
+mod formdata;
 
 #[wasm_bindgen]
 pub fn test_wasm() -> bool {

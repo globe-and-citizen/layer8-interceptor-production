@@ -1,9 +1,18 @@
 use std::{collections::HashMap, str::FromStr};
 
+// Proper error propagation with details, logging
+// Custom type to hold request.
+
 use js_sys::Object;
 use reqwest::{Method, RequestBuilder, header::HeaderValue};
 use wasm_bindgen::{prelude::*, throw_str};
 use web_sys::{ReadableStreamDefaultReader, Request, RequestInit, ResponseInit, console};
+
+use crate::formdata::parse_form_data_to_array;
+
+pub struct L8Request {
+    pub method: Method,
+}
 
 /// This API is expected to be a 1:1 mapping of the Fetch API.
 /// Arguments:
@@ -63,32 +72,16 @@ pub async fn fetch(
                 Body::Bytes(bytes) => req_builder = req_builder.body(bytes),
 
                 Body::Params(params) => {
-                    let encoded_params =
-                        params
-                            .into_iter()
-                            .map(|(k, v)| (k, v))
-                            .collect::<Vec<(String, String)>>();
-
+                    let encoded_params = params.into_iter().collect::<Vec<(String, String)>>();
                     req_builder = req_builder.query(encoded_params.as_slice());
                 }
 
                 Body::FormData(form_data) => {
-                    // req_builder = parse_form_data(req_builder, form_data).await?;
-                    // FIXME: Convert FormData to a byte array, we are missing out on the file upload parts
-                    let mut form = HashMap::new();
-                    for entry in form_data.entries() {
-                        let key_value_entry = js_sys::Array::from(&entry.unwrap_throw());
-                        let key = key_value_entry.get(0).as_string().unwrap_throw();
-                        let value = key_value_entry.get(1).as_string().unwrap_throw();
-
-                        form.insert(key, value);
-                    }
-
-                    req_builder = req_builder.form(&form);
+                    req_builder = parse_form_data(req_builder, form_data).await?
                 }
 
                 Body::File(file) => {
-                    // Fixme: find out if behavior is a byte array or we should use formdata for the request
+                    // Fixme: find out if behavior is a byte array or we should use form data for the request
                     // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#setting_a_body>
                     // Convert File to a byte array
                     let file_bytes = wasm_bindgen_futures::JsFuture::from(file.array_buffer())
@@ -192,8 +185,14 @@ fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
     }
 
     // validate the URL from string and Request object
-    if !web_sys::Url::new(&resource_url).is_ok() {
-        Err(JsValue::from_str(&format!("Invalid URL: {}", resource_url)))?;
+    if let Err(err) = web_sys::Url::new(&resource_url) {
+        // If the URL is invalid, we throw an error with the details.
+        return Err(JsValue::from_str(&format!(
+            "Invalid URL: {}. Error: {}",
+            resource_url,
+            err.as_string()
+                .unwrap_or_else(|| "Unknown error".to_string())
+        )));
     }
 
     Ok(resource_url)
@@ -245,7 +244,7 @@ fn js_headers_to_reqwest_headers(
     // we can then check if the headers are an instance of js_sys::Object
     if let Some(headers) = js_headers.dyn_ref::<Object>() {
         // [key, value] item array
-        let entries = js_sys::Object::entries(&headers);
+        let entries = js_sys::Object::entries(headers);
 
         let mut reqwest_headers = reqwest::header::HeaderMap::new();
         for entry in entries.iter() {
@@ -317,7 +316,7 @@ async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
 
     // ArrayBuffer
     if let Some(val) = body.dyn_ref::<js_sys::ArrayBuffer>() {
-        let uint8_array = js_sys::Uint8Array::new(&val);
+        let uint8_array = js_sys::Uint8Array::new(val);
         return Ok(Body::Bytes(uint8_array.to_vec()));
     }
 
@@ -374,9 +373,9 @@ async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
         return Ok(Body::Bytes(val.into_bytes()));
     }
 
-    return Err(JsValue::from_str(
+    Err(JsValue::from_str(
         "Invalid body type for fetch. Expected a string, ArrayBuffer, TypedArray, DataView, Blob, File, URLSearchParams, FormData, or ReadableStream.",
-    ));
+    ))
 }
 
 // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/ReadableStreamDefaultReader/read#example_1_-_simple_example>
@@ -417,12 +416,22 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
     Ok(data)
 }
 
-#[allow(dead_code)]
+// This operation can be improved with streaming uploads but for now we will
+// parse the FormData into an array of Uint8Array chunks.
 async fn parse_form_data(
-    _: RequestBuilder,
-    _: web_sys::FormData,
+    req_builder: RequestBuilder,
+    formdata: web_sys::FormData,
 ) -> Result<RequestBuilder, JsValue> {
-    unimplemented!(
-        "Please check <https://github.com/globe-and-citizen/layer8-interceptor-rs/blob/main/src/js_glue/formdata_polyfill.ts> for a polyfill of FormData in JS"
+    // TODO: should we use a constant boundary for each request?
+    let boundary = uuid::Uuid::new_v4().to_string();
+    let data = parse_form_data_to_array(formdata, boundary.clone()).await?;
+
+    console::log_1(&format!("Parsed Formdata is \n{}", String::from_utf8_lossy(&data)).into());
+
+    let req_builder = req_builder.body(data).header(
+        "Content-Type",
+        format!("multipart/form-data; boundary={}", boundary),
     );
+
+    Ok(req_builder)
 }

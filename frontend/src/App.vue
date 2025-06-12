@@ -77,16 +77,13 @@
       </button>
 
       <!-- Test formdata with fetch -->
-      <button @click="interceptor_wasm.fetch('http://localhost:3000/formdata', {
-        method: 'POST',
-        body: formData,
-      }).
-        then(val => val.text().then(text => console.log('Fetch Result for FormData:', text)))
-        .catch(err => console.error('Fetch Error:', err))" class="btn btn-primary pretty-button">
-        FormData
-      </button>
-
-      <!-- Form needs to handle  -->
+      <div
+        style="border: 2px solid black; border-radius: 8px; padding: 10px; display: flex; align-items: center; background: #fff;">
+        <input type="file" @change="onFileChange" style="margin-right: 10px;" />
+        <button @click="sendFormData" class="btn btn-primary pretty-button">
+          FormData
+        </button>
+      </div>
 
       <!-- Testing url params -->
       <button @click="interceptor_wasm.fetch('http://localhost:3000/params', {
@@ -116,6 +113,22 @@ formData.append('message', 'Hello, World!');
 
 const params = new URLSearchParams();
 params.append('message', 'Hello, World!');
+
+const sendFormData = () => {
+  const fileInput = document.querySelector('input[type="file"]');
+  if (fileInput.files.length > 0) {
+    formData.append('my_file', fileInput.files[0]);
+  }
+  formData.append('message', 'Hello, World!');
+
+  interceptor_wasm.fetch('http://localhost:3000/formdata', {
+    method: 'POST',
+    body: formData,
+  })
+    .then(val => val.text().then(text => console.log('Fetch Result for FormData:', text)))
+    .catch(err => console.error('Fetch Error:', err));
+};
+
 </script>
 
 <style scoped>
