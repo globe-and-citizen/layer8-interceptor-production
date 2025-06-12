@@ -97,7 +97,8 @@ pub async fn fetch(
         };
 
         req_wrapper.method = match options.get_method() {
-            Some(val) => Method::from_str(&val.trim().to_uppercase()).unwrap_throw(),
+            Some(val) => Method::from_str(&val.trim().to_uppercase())
+                .expect_throw("we expect a valid HTTP method"),
             None => Method::GET,
         };
 
@@ -126,7 +127,7 @@ pub async fn fetch(
                             "multipart/form-data; boundary={}",
                             boundary
                         ))
-                        .unwrap_throw(),
+                        .expect_throw("Failed to set Content-Type header for multipart/form-data"),
                     );
 
                     req_wrapper.body = Some(data);
@@ -138,7 +139,7 @@ pub async fn fetch(
                     // Convert File to a byte array
                     let file_bytes = wasm_bindgen_futures::JsFuture::from(file.array_buffer())
                         .await
-                        .unwrap_throw();
+                        .expect_throw("Failed to convert File to ArrayBuffer");
                     let uint8_array = js_sys::Uint8Array::new(&file_bytes);
 
                     req_wrapper.body = Some(uint8_array.to_vec());
@@ -171,8 +172,6 @@ pub async fn fetch(
 }
 
 async fn construct_js_response(resp: reqwest::Response) -> web_sys::Response {
-    // TODO: only transfers status, status_text, headers and body ref <https://stackoverflow.com/a/76425824/10020745>
-    // This approach misses out on properties like `Response.bodyUsed`... <https://developer.mozilla.org/en-US/docs/Web/API/Response#instance_properties>
     let resp_init = ResponseInit::new();
     {
         // status
@@ -182,11 +181,17 @@ async fn construct_js_response(resp: reqwest::Response) -> web_sys::Response {
         resp_init.set_status_text(resp.status().canonical_reason().unwrap_or("OK"));
 
         // headers
-        let js_headers = web_sys::Headers::new().unwrap_throw();
+        let js_headers =
+            web_sys::Headers::new().expect_throw("Failed to create a new Headers object");
         for (key, value) in resp.headers().iter() {
             js_headers
-                .append(key.as_str(), value.to_str().unwrap_throw())
-                .unwrap_throw();
+                .append(
+                    key.as_str(),
+                    value
+                        .to_str()
+                        .expect_throw("Expected header value to be a valid UTF-8 string"),
+                )
+                .expect_throw("Failed to append header to Headers object");
         }
 
         // logging headers
@@ -195,7 +200,10 @@ async fn construct_js_response(resp: reqwest::Response) -> web_sys::Response {
         resp_init.set_headers(&js_headers);
     }
 
-    let body = resp.bytes().await.unwrap_throw();
+    let body = resp
+        .bytes()
+        .await
+        .expect_throw("Failed to read response body as bytes");
     let array = js_sys::Uint8Array::new_with_length(body.len() as u32);
     array.copy_from(&body);
     match web_sys::Response::new_with_opt_js_u8_array_and_init(Some(&array), &resp_init) {
@@ -213,7 +221,9 @@ async fn construct_js_response(resp: reqwest::Response) -> web_sys::Response {
 fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
     let mut resource_url = String::new();
     if resource.is_string() {
-        resource_url = resource.as_string().unwrap_throw();
+        resource_url = resource
+            .as_string()
+            .expect_throw("Expected resource to be a string");
     }
 
     // If the resource is a URL object, we return it stringified.
@@ -296,21 +306,29 @@ fn headers_to_reqwest_headers(
         }
 
         // Convert the key and value to reqwest's HeaderName and HeaderValue
-        let header_name = reqwest::header::HeaderName::from_str(&key.as_string().unwrap_throw())
-            .map_err(|_| {
-                JsValue::from_str(&format!(
-                    "Invalid header name: {}",
-                    key.as_string().unwrap_throw()
-                ))
-            })?;
+        let header_name = reqwest::header::HeaderName::from_str(
+            &key.as_string()
+                .expect_throw("Expected header name to be a string"),
+        )
+        .map_err(|_| {
+            JsValue::from_str(&format!(
+                "Invalid header name: {}",
+                key.as_string()
+                    .expect_throw("Expected header name to be a string")
+            ))
+        })?;
 
         let header_value = reqwest::header::HeaderValue::from_str(
-            &value.as_string().unwrap_throw(),
+            &value
+                .as_string()
+                .expect_throw("Expected header value to be a string"),
         )
         .map_err(|_| {
             JsValue::from_str(&format!(
                 "Invalid header value: {}",
-                value.as_string().unwrap_throw()
+                value
+                    .as_string()
+                    .expect_throw("Expected header value to be a string")
             ))
         })?;
 
@@ -331,20 +349,28 @@ fn js_headers_to_reqwest_headers(
         let value = key_value_entry.get(1);
 
         // Convert the key and value to reqwest's HeaderName and HeaderValue
-        let header_name = reqwest::header::HeaderName::from_str(&key.as_string().unwrap_throw())
-            .map_err(|_| {
-                JsValue::from_str(&format!(
-                    "Invalid header name: {}",
-                    key.as_string().unwrap_throw()
-                ))
-            })?;
+        let header_name = reqwest::header::HeaderName::from_str(
+            &key.as_string()
+                .expect_throw("Expected header name to be a string"),
+        )
+        .map_err(|_| {
+            JsValue::from_str(&format!(
+                "Invalid header name: {}",
+                key.as_string()
+                    .expect_throw("Expected header name to be a string")
+            ))
+        })?;
         let header_value = reqwest::header::HeaderValue::from_str(
-            &value.as_string().unwrap_throw(),
+            &value
+                .as_string()
+                .expect_throw("Expected header value to be a string"),
         )
         .map_err(|_| {
             JsValue::from_str(&format!(
                 "Invalid header value: {}",
-                value.as_string().unwrap_throw()
+                value
+                    .as_string()
+                    .expect_throw("Expected header value to be a string")
             ))
         })?;
 
@@ -449,7 +475,7 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
     let reader = stream.get_reader();
     let reader = reader
         .dyn_ref::<ReadableStreamDefaultReader>()
-        .unwrap_throw();
+        .expect_throw("Expected ReadableStreamDefaultReader, already checked");
 
     let mut data = Vec::new();
     loop {
@@ -459,9 +485,11 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
         let object = wasm_bindgen_futures::JsFuture::from(reader.read()).await?;
 
         let done = js_sys::Reflect::get(&object, &"done".into())
-            .unwrap_throw()
+            .expect_throw("Expected 'done' property in ReadableStreamDefaultReader.read() result")
             .as_bool()
-            .unwrap_throw();
+            .expect_throw(
+                "Expected 'done' property to be a boolean in ReadableStreamDefaultReader.read() result",
+            );
 
         if done {
             // If done, we break from the loop and return the accumulated data.
@@ -471,30 +499,19 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
 
         // value for fetch streams is a Uint8Array
         let value = js_sys::Reflect::get(&object, &"value".into())
-            .unwrap_throw()
+            .expect_throw(
+                "Expected 'value' property in ReadableStreamDefaultReader.read() result",
+            )
             .dyn_into::<js_sys::Uint8Array>()
-            .unwrap_throw()
+            .expect_throw(
+                "Expected 'value' property to be a Uint8Array in ReadableStreamDefaultReader.read() result",
+            )
             .to_vec();
 
         data.extend_from_slice(&value);
     }
 
+    // Release the reader lock
+    reader.release_lock();
     Ok(data)
 }
-
-// // This operation can be improved with streaming uploads but for now we will
-// // parse the FormData into an array of Uint8Array chunks.
-// async fn parse_form_data(formdata: web_sys::FormData) -> Result<Vec<u8>, JsValue> {
-//     // TODO: should we use a constant boundary for each request?
-//     let boundary = uuid::Uuid::new_v4().to_string();
-//     let data = parse_form_data_to_array(formdata, boundary.clone()).await?;
-
-//     console::log_1(&format!("Parsed Formdata is \n{}", String::from_utf8_lossy(&data)).into());
-
-//     let req_builder = req_builder.body(data).header(
-//         "Content-Type",
-//         format!("multipart/form-data; boundary={}", boundary),
-//     );
-
-//     Ok(data)
-// }
