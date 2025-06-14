@@ -1,29 +1,30 @@
 use std::{collections::HashMap, str::FromStr};
 
-// Proper error propagation with details, logging
-// Custom type to hold request.
-
-use reqwest::{
-    Method,
-    header::{HeaderMap, HeaderValue},
-};
+use reqwest::{Method, header::HeaderMap};
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
 use web_sys::{ReadableStreamDefaultReader, Request, RequestInit, ResponseInit, console};
 
 use crate::formdata::parse_form_data_to_array;
 
-#[derive(Debug, Clone, Default)]
+/// A JSON serializable wrapper for a request that can be sent using the Fetch API.
+///
+/// At the moment though, we are using reqwest to send the request parts and not the whole serialized object
+/// as a payload.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RequestWrapper {
     pub url: String,
-    pub method: Method,
+    pub method: String,
     pub body: Option<Vec<u8>>,
-    pub headers: HeaderMap,
+    pub headers: HashMap<String, String>,
     pub params: HashMap<String, String>,
 }
 
 impl RequestWrapper {
     pub async fn send_request(self, client: reqwest::Client) -> Result<web_sys::Response, JsValue> {
-        let mut req_builder = client.request(self.method, self.url);
+        let method = Method::from_str(&self.method)
+            .map_err(|e| JsValue::from_str(&format!("Invalid HTTP method: {}", e)))?;
+        let mut req_builder = client.request(method, self.url);
 
         // set the body if it exists
         if let Some(body) = self.body {
@@ -38,7 +39,8 @@ impl RequestWrapper {
 
         // set the headers if they exist
         if !self.headers.is_empty() {
-            req_builder = req_builder.headers(self.headers);
+            let headers: HeaderMap = (&self.headers).try_into().expect_throw("valid headers");
+            req_builder = req_builder.headers(headers);
         }
 
         let resp = req_builder
@@ -68,8 +70,7 @@ pub async fn fetch(
     // using the Request object to fetch the resource
     if let Some(req) = resource.dyn_ref::<Request>() {
         let mut req_wrapper = RequestWrapper {
-            method: Method::from_str(&req.method().trim().to_uppercase())
-                .map_err(|e| JsValue::from_str(&format!("Invalid HTTP method: {}", e)))?,
+            method: req.method().to_string().trim().to_uppercase(),
             url,
             ..Default::default()
         };
@@ -97,9 +98,8 @@ pub async fn fetch(
         };
 
         req_wrapper.method = match options.get_method() {
-            Some(val) => Method::from_str(&val.trim().to_uppercase())
-                .expect_throw("we expect a valid HTTP method"),
-            None => Method::GET,
+            Some(val) => val.trim().to_uppercase(),
+            None => String::from("GET"),
         };
 
         let body = options.get_body();
@@ -121,13 +121,9 @@ pub async fn fetch(
                     let data = parse_form_data_to_array(form_data, boundary.clone()).await?;
 
                     // set content type for multipart/form-data
-                    req_wrapper.headers.append(
-                        "Content-Type",
-                        HeaderValue::from_str(&format!(
-                            "multipart/form-data; boundary={}",
-                            boundary
-                        ))
-                        .expect_throw("Failed to set Content-Type header for multipart/form-data"),
+                    req_wrapper.headers.insert(
+                        "Content-Type".to_string(),
+                        format!("multipart/form-data; boundary={}", boundary),
                     );
 
                     req_wrapper.body = Some(data);
@@ -263,12 +259,10 @@ fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
 
 // Ref <https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#setting_headers>
 // we expect the headers to be either Headers or an Object
-fn headers_to_reqwest_headers(
-    js_headers: JsValue,
-) -> Result<reqwest::header::HeaderMap<HeaderValue>, JsValue> {
+fn headers_to_reqwest_headers(js_headers: JsValue) -> Result<HashMap<String, String>, JsValue> {
     // If the headers are undefined or null, we return an empty HeaderMap
     if js_headers.is_null() || js_headers.is_undefined() {
-        return Ok(reqwest::header::HeaderMap::new());
+        return Ok(HashMap::new());
     }
 
     // We first check if the headers are an instance of web_sys::Headers
@@ -295,7 +289,7 @@ fn headers_to_reqwest_headers(
 
     // [key, value] item array
     let entries = js_sys::Object::entries(headers);
-    let mut reqwest_headers = reqwest::header::HeaderMap::new();
+    let mut reqwest_headers = HashMap::new();
     for entry in entries.iter() {
         // [key, value] item array
         let key_value_entry = js_sys::Array::from(&entry);
@@ -306,31 +300,13 @@ fn headers_to_reqwest_headers(
         }
 
         // Convert the key and value to reqwest's HeaderName and HeaderValue
-        let header_name = reqwest::header::HeaderName::from_str(
-            &key.as_string()
-                .expect_throw("Expected header name to be a string"),
-        )
-        .map_err(|_| {
-            JsValue::from_str(&format!(
-                "Invalid header name: {}",
-                key.as_string()
-                    .expect_throw("Expected header name to be a string")
-            ))
-        })?;
+        let header_name = key
+            .as_string()
+            .expect_throw("Expected header name to be a string");
 
-        let header_value = reqwest::header::HeaderValue::from_str(
-            &value
-                .as_string()
-                .expect_throw("Expected header value to be a string"),
-        )
-        .map_err(|_| {
-            JsValue::from_str(&format!(
-                "Invalid header value: {}",
-                value
-                    .as_string()
-                    .expect_throw("Expected header value to be a string")
-            ))
-        })?;
+        let header_value = value
+            .as_string()
+            .expect_throw("Expected header value to be a string");
 
         reqwest_headers.insert(header_name, header_value);
     }
@@ -340,8 +316,8 @@ fn headers_to_reqwest_headers(
 
 fn js_headers_to_reqwest_headers(
     headers: &web_sys::Headers,
-) -> Result<reqwest::header::HeaderMap<HeaderValue>, JsValue> {
-    let mut reqwest_headers = reqwest::header::HeaderMap::new();
+) -> Result<HashMap<String, String>, JsValue> {
+    let mut reqwest_headers = HashMap::new();
     for entry in headers.entries() {
         // [key, value] item array
         let key_value_entry = js_sys::Array::from(&entry?);
@@ -349,30 +325,13 @@ fn js_headers_to_reqwest_headers(
         let value = key_value_entry.get(1);
 
         // Convert the key and value to reqwest's HeaderName and HeaderValue
-        let header_name = reqwest::header::HeaderName::from_str(
-            &key.as_string()
-                .expect_throw("Expected header name to be a string"),
-        )
-        .map_err(|_| {
-            JsValue::from_str(&format!(
-                "Invalid header name: {}",
-                key.as_string()
-                    .expect_throw("Expected header name to be a string")
-            ))
-        })?;
-        let header_value = reqwest::header::HeaderValue::from_str(
-            &value
-                .as_string()
-                .expect_throw("Expected header value to be a string"),
-        )
-        .map_err(|_| {
-            JsValue::from_str(&format!(
-                "Invalid header value: {}",
-                value
-                    .as_string()
-                    .expect_throw("Expected header value to be a string")
-            ))
-        })?;
+        let header_name = key
+            .as_string()
+            .expect_throw("Expected header name to be a string");
+
+        let header_value = value
+            .as_string()
+            .expect_throw("Expected header value to be a string");
 
         reqwest_headers.insert(header_name, header_value);
     }
