@@ -21,77 +21,40 @@ pub struct RequestWrapper {
 }
 
 impl RequestWrapper {
-    pub async fn send_request(self, client: reqwest::Client) -> Result<web_sys::Response, JsValue> {
-        let method = Method::from_str(&self.method)
-            .map_err(|e| JsValue::from_str(&format!("Invalid HTTP method: {}", e)))?;
-        let mut req_builder = client.request(method, self.url);
+    pub async fn new(resource: JsValue, options: Option<RequestInit>) -> Result<Self, JsValue> {
+        let url = retrieve_resource_url(&resource)?;
 
-        // set the body if it exists
-        if let Some(body) = self.body {
-            req_builder = req_builder.body(body);
+        // using the Request object to fetch the resource
+        if let Some(req) = resource.dyn_ref::<Request>() {
+            let mut req_wrapper = RequestWrapper {
+                method: req.method().to_string().trim().to_uppercase(),
+                url,
+                ..Default::default()
+            };
+
+            req_wrapper.body = match req.body() {
+                Some(val) => Some(readable_stream_to_bytes(val).await?),
+                None => None,
+            };
+
+            req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
+
+            return Ok(req_wrapper);
         }
 
-        // set the url params if they exist
-        if !self.params.is_empty() {
-            let encoded_params = self.params.into_iter().collect::<Vec<(String, String)>>();
-            req_builder = req_builder.query(encoded_params.as_slice());
-        }
-
-        // set the headers if they exist
-        if !self.headers.is_empty() {
-            let headers: HeaderMap = (&self.headers).try_into().expect_throw("valid headers");
-            req_builder = req_builder.headers(headers);
-        }
-
-        let resp = req_builder
-            .send()
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to send request: {}", e)))?;
-
-        // Constructing a web_sys::Response from the reqwest::Response
-        Ok(construct_js_response(resp).await)
-    }
-}
-
-/// This API is expected to be a 1:1 mapping of the Fetch API.
-/// Arguments:
-/// - `resource`: The resource to fetch, which can be a string, a URL object or a Request object.
-/// - `options`: Optional configuration for the fetch request, which can include headers, method, body, etc.
-#[wasm_bindgen]
-pub async fn fetch(
-    resource: JsValue,
-    options: Option<RequestInit>,
-) -> Result<web_sys::Response, JsValue> {
-    console::log_1(&format!("Fetching resource: {:?}", resource).into());
-
-    let client = reqwest::Client::new();
-    let url = retrieve_resource_url(&resource)?;
-
-    // using the Request object to fetch the resource
-    if let Some(req) = resource.dyn_ref::<Request>() {
-        let mut req_wrapper = RequestWrapper {
-            method: req.method().to_string().trim().to_uppercase(),
-            url,
-            ..Default::default()
+        let options = match options {
+            Some(opts) => opts,
+            None => {
+                // using only the URL to fetch the resource, with assumed GET method
+                return Ok(RequestWrapper {
+                    url,
+                    method: String::from("GET"),
+                    ..Default::default()
+                });
+            }
         };
 
-        req_wrapper.body = match req.body() {
-            Some(val) => Some(readable_stream_to_bytes(val).await?),
-            None => None,
-        };
-
-        req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
-
-        let resp = req_wrapper
-            .send_request(client)
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to send request: {:?}", e)))?;
-
-        return Ok(resp);
-    }
-
-    // Using the resource URL and options object to fetch the resource
-    if let Some(options) = options {
+        // Using the resource URL and options object to fetch the resource
         let mut req_wrapper = RequestWrapper {
             url,
             ..Default::default()
@@ -148,23 +111,62 @@ pub async fn fetch(
             req_wrapper.headers.extend(headers);
         }
 
-        let resp = req_wrapper
-            .send_request(client)
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to fetch resource: {:?}", e)))?;
-
-        console::log_1(&format!("Response: {:?}", resp).into());
-
-        return Ok(resp);
+        Ok(req_wrapper)
     }
 
-    // using only the URL to fetch the resource, with assumed GET method
-    match client.get(url).send().await {
-        Ok(resp) => Ok(construct_js_response(resp).await),
-        Err(err) => {
-            throw_str(&format!("Failed to fetch resource: {}", err));
+    /// Sends the request parts using the provided reqwest client. Not as a serialized object, but the parts of the request
+    /// destructured into method, url, body, headers and params.
+    async fn send_request_parts(
+        self,
+        client: reqwest::Client,
+    ) -> Result<web_sys::Response, JsValue> {
+        let method = Method::from_str(&self.method)
+            .map_err(|e| JsValue::from_str(&format!("Invalid HTTP method: {}", e)))?;
+        let mut req_builder = client.request(method, self.url);
+
+        // set the body if it exists
+        if let Some(body) = self.body {
+            req_builder = req_builder.body(body);
         }
+
+        // set the url params if they exist
+        if !self.params.is_empty() {
+            let encoded_params = self.params.into_iter().collect::<Vec<(String, String)>>();
+            req_builder = req_builder.query(encoded_params.as_slice());
+        }
+
+        // set the headers if they exist
+        if !self.headers.is_empty() {
+            let headers: HeaderMap = (&self.headers).try_into().expect_throw("valid headers");
+            req_builder = req_builder.headers(headers);
+        }
+
+        let resp = req_builder
+            .send()
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to send request: {}", e)))?;
+
+        // Constructing a web_sys::Response from the reqwest::Response
+        Ok(construct_js_response(resp).await)
     }
+}
+
+/// This API is expected to be a 1:1 mapping of the Fetch API.
+/// Arguments:
+/// - `resource`: The resource to fetch, which can be a string, a URL object or a Request object.
+/// - `options`: Optional configuration for the fetch request, which can include headers, method, body, etc.
+#[wasm_bindgen]
+pub async fn fetch(
+    resource: JsValue,
+    options: Option<RequestInit>,
+) -> Result<web_sys::Response, JsValue> {
+    let req_wrapper = RequestWrapper::new(resource, options).await?;
+
+    let client = reqwest::Client::new();
+
+    let resp = req_wrapper.send_request_parts(client).await?;
+
+    Ok(resp)
 }
 
 async fn construct_js_response(resp: reqwest::Response) -> web_sys::Response {

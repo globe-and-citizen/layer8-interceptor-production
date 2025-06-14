@@ -119,8 +119,7 @@ const sendFormData = () => {
   if (fileInput.files.length > 0) {
     formData.append('my_file', fileInput.files[0]);
   }
-  formData.append('message', 'Hello, World!');
-
+  // formData.append('message', 'Hello, World!');
   interceptor_wasm.fetch('http://localhost:3000/formdata', {
     method: 'POST',
     body: formData,

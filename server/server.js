@@ -15,16 +15,19 @@ app.use(cors()); // Enable CORS for all routes
 const PORT = process.env.PORT || 3000;
 // Set up multer for file uploads
 const storage = multer.diskStorage({
+    // Specify the destination and filename for uploaded files
     destination: (req, file, cb) => {
         cb(null, 'uploads/'); // Specify the directory to save uploaded files
     },
     filename: (req, file, cb) => {
+        console.log('File received:', file);
         // Use the original file name 
         cb(null, file.originalname); // You can also use a unique name if needed
     }
 });
 
 const upload = multer({ storage: storage });
+// const my_file = upload.single('my_file');
 
 // Middleware to parse JSON bodies
 app.use(express.json());
@@ -54,13 +57,11 @@ app.use(express.urlencoded({ extended: true }));
 // });
 
 // 
-app.post('/formdata', upload.single('my_file'), (req, res) => {
+app.post('/formdata', upload.array('my_file'), (req, res) => {
     // Save my file to current directory
-    if (!req.file) {
+    if (!req.files) {
         return res.status(400).send('No file uploaded.');
     }
-
-    console.log('File uploaded:', req.file);
 
     // pick up the message from the form data
     const message = req.body.message || 'No message provided';

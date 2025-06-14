@@ -6,7 +6,7 @@ pub async fn parse_form_data_to_array(
     form: web_sys::FormData,
     boundary: String,
 ) -> Result<Vec<u8>, JsValue> {
-    let body = extract_body(&form, &boundary).await?;
+    let body = extract_body(form, &boundary).await?;
     let mut chunks = Uint8Array::new_with_length(0);
 
     for part in body {
@@ -30,10 +30,7 @@ pub async fn parse_form_data_to_array(
 }
 
 // Ref: <https://github.com/nodejs/undici/blob/e39a6324c4474c6614cac98b8668e3d036aa6b18/lib/fetch/body.js#L31>
-async fn extract_body(
-    form: &web_sys::FormData,
-    boundary: &str,
-) -> Result<Vec<Uint8Array>, JsValue> {
+async fn extract_body(form: web_sys::FormData, boundary: &str) -> Result<Vec<Uint8Array>, JsValue> {
     let prefix = format!("--{}\r\nContent-Disposition: form-data", boundary);
     let mut blob_parts: Vec<Uint8Array> = Vec::new();
     let rn = Uint8Array::from(&[13, 10][..]); // '\r\n'
