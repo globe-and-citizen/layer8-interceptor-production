@@ -63,9 +63,10 @@ app.post('/formdata', upload.array('my_file'), (req, res) => {
         return res.status(400).send('No file uploaded.');
     }
 
-    // pick up the message from the form data
-    const message = req.body.message || 'No message provided';
     console.log('Received message:', message);
+    return res.json({
+        message: 'File uploaded successfully',
+    });
 });
 
 // Handle request params with a GET request

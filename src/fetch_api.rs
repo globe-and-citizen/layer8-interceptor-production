@@ -106,8 +106,9 @@ impl RequestWrapper {
             }
         }
 
-        if options.get_headers() != JsValue::UNDEFINED || options.get_headers() != JsValue::NULL {
-            let headers = headers_to_reqwest_headers(options.get_headers())?;
+        let raw_headers = options.get_headers();
+        if !raw_headers.is_undefined() && !raw_headers.is_null() {
+            let headers = headers_to_reqwest_headers(raw_headers)?;
             req_wrapper.headers.extend(headers);
         }
 
