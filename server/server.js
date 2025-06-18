@@ -27,12 +27,10 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage: storage });
-// const my_file = upload.single('my_file');
 
 // Middleware to parse JSON bodies
 app.use(express.json());
 app.use(express.text()); // Middleware to parse text bodies
-// app.use
 
 app.use((req, res, next) => {
     // Log the request method and URL
@@ -42,28 +40,15 @@ app.use((req, res, next) => {
 
 // Middleware to parse URL-encoded bodies
 app.use(express.urlencoded({ extended: true }));
-// // Serve static files from the 'uploads' directory
-// app.use('/uploads', express.static('uploads'));
 
-// Handle file upload with a POST request
-// app.post('/upload', upload.single('file'), (req, res) => {
-//     if (!req.file) {
-//         return res.status(400).send('No file uploaded.');
-//     }
-//     res.json({
-//         message: 'File uploaded successfully',
-//         file: req.file
-//     });
-// });
 
-// 
+// Handle file uploads with a POST request
 app.post('/formdata', upload.array('my_file'), (req, res) => {
     // Save my file to current directory
     if (!req.files) {
         return res.status(400).send('No file uploaded.');
     }
 
-    console.log('Received message:', message);
     return res.json({
         message: 'File uploaded successfully',
     });

@@ -4,6 +4,7 @@ use web_sys::console;
 
 pub mod fetch_api;
 mod formdata;
+mod req_properties;
 
 #[wasm_bindgen]
 pub fn test_wasm() -> bool {

@@ -1,44 +1,74 @@
 use std::{collections::HashMap, str::FromStr};
 
+use js_sys::Promise;
 use reqwest::{Method, header::HeaderMap};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
-use web_sys::{ReadableStreamDefaultReader, Request, RequestInit, ResponseInit, console};
+use wasm_streams::ReadableStream;
+use web_sys::{
+    AbortSignal, ReferrerPolicy, Request, RequestInit, RequestMode, ResponseInit, console,
+};
 
-use crate::formdata::parse_form_data_to_array;
+use crate::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
+
+// #[wasm_bindgen]
+// extern "C" {
+//     #[wasm_bindgen(js_name = fetch)]
+//     fn fetch_with_request(input: &web_sys::Request) -> Promise;
+// }
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 ///
 /// At the moment though, we are using reqwest to send the request parts and not the whole serialized object
 /// as a payload.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct RequestWrapper {
+pub struct L8RequestObject {
     pub url: String,
     pub method: String,
     pub body: Option<Vec<u8>>,
     pub headers: HashMap<String, String>,
-    pub params: HashMap<String, String>,
+    pub url_params: HashMap<String, String>,
+    pub mode: Option<Mode>,
+    pub keep_alive: Option<bool>,
+    pub redirect: Option<String>,
 }
 
-impl RequestWrapper {
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum Mode {
+    // Disallows cross-origin requests. If a request is made to another origin with this mode set, the result is an error.
+    SameOrigin = 0,
+    // Disables CORS for cross-origin requests. The response is opaque, meaning that its headers and body are not available to JavaScript.
+    NoCors = 1,
+    // If the request is cross-origin then it will use the Cross-Origin Resource Sharing (CORS) mechanism.
+    // Using the Request() constructor, the value of the mode property for that Request is set to cors.
+    Cors = 2,
+    // A mode for supporting navigation. The navigate value is intended to be used only by HTML navigation.
+    // A navigate request is created only while navigating between documents.
+    Navigate = 3,
+}
+
+impl L8RequestObject {
     pub async fn new(resource: JsValue, options: Option<RequestInit>) -> Result<Self, JsValue> {
         let url = retrieve_resource_url(&resource)?;
 
         // using the Request object to fetch the resource
         if let Some(req) = resource.dyn_ref::<Request>() {
-            let mut req_wrapper = RequestWrapper {
+            let mut req_wrapper = L8RequestObject {
                 method: req.method().to_string().trim().to_uppercase(),
                 url,
                 ..Default::default()
             };
 
             req_wrapper.body = match req.body() {
-                Some(val) => Some(readable_stream_to_bytes(val).await?),
+                Some(readable_stream) => readable_stream_to_bytes(readable_stream)
+                    .await
+                    .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?
+                    .into(),
                 None => None,
             };
 
             req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
-
+            req_wrapper.mode = Some(Mode::Cors); // Default mode for Request objects
             return Ok(req_wrapper);
         }
 
@@ -46,7 +76,7 @@ impl RequestWrapper {
             Some(opts) => opts,
             None => {
                 // using only the URL to fetch the resource, with assumed GET method
-                return Ok(RequestWrapper {
+                return Ok(L8RequestObject {
                     url,
                     method: String::from("GET"),
                     ..Default::default()
@@ -55,10 +85,14 @@ impl RequestWrapper {
         };
 
         // Using the resource URL and options object to fetch the resource
-        let mut req_wrapper = RequestWrapper {
+        let mut req_wrapper = L8RequestObject {
             url,
             ..Default::default()
         };
+
+        if let Some(signal) = add_properties_to_request(&mut req_wrapper, &options) {
+            // todo
+        }
 
         req_wrapper.method = match options.get_method() {
             Some(val) => val.trim().to_uppercase(),
@@ -77,7 +111,7 @@ impl RequestWrapper {
             match body {
                 Body::Bytes(bytes) => req_wrapper.body = Some(bytes),
 
-                Body::Params(params) => req_wrapper.params = params,
+                Body::Params(params) => req_wrapper.url_params = params,
 
                 Body::FormData(form_data) => {
                     let boundary = uuid::Uuid::new_v4().to_string();
@@ -102,6 +136,12 @@ impl RequestWrapper {
                     let uint8_array = js_sys::Uint8Array::new(&file_bytes);
 
                     req_wrapper.body = Some(uint8_array.to_vec());
+                }
+
+                Body::Stream(stream) => {
+                    // Convert ReadableStream to bytes
+                    let bytes = readable_stream_to_bytes(stream.into_raw()).await?;
+                    req_wrapper.body = Some(bytes);
                 }
             }
         }
@@ -131,8 +171,11 @@ impl RequestWrapper {
         }
 
         // set the url params if they exist
-        if !self.params.is_empty() {
-            let encoded_params = self.params.into_iter().collect::<Vec<(String, String)>>();
+        if !self.url_params.is_empty() {
+            let encoded_params = self
+                .url_params
+                .into_iter()
+                .collect::<Vec<(String, String)>>();
             req_builder = req_builder.query(encoded_params.as_slice());
         }
 
@@ -161,7 +204,7 @@ pub async fn fetch(
     resource: JsValue,
     options: Option<RequestInit>,
 ) -> Result<web_sys::Response, JsValue> {
-    let req_wrapper = RequestWrapper::new(resource, options).await?;
+    let req_wrapper = L8RequestObject::new(resource, options).await?;
 
     let client = reqwest::Client::new();
 
@@ -344,8 +387,10 @@ fn js_headers_to_reqwest_headers(
 
 enum Body {
     Bytes(Vec<u8>),
+    Stream(wasm_streams::ReadableStream),
     Params(HashMap<String, String>),
     FormData(web_sys::FormData),
+    #[allow(dead_code)]
     File(web_sys::File),
 }
 
@@ -384,15 +429,17 @@ async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
 
     // Blob
     if let Some(val) = body.dyn_ref::<web_sys::Blob>() {
-        let array_buffer = wasm_bindgen_futures::JsFuture::from(val.array_buffer()).await?;
-        let uint8_array = js_sys::Uint8Array::new(&array_buffer);
-        return Ok(Body::Bytes(uint8_array.to_vec()));
+        let readable_stream = val.stream();
+        let body = ReadableStream::from_raw(readable_stream);
+        return Ok(Body::Stream(body));
     }
 
     // File
     if body.is_instance_of::<web_sys::File>() {
         let val = body.dyn_into::<web_sys::File>().unwrap_throw();
-        return Ok(Body::File(val));
+        let readable_stream = val.stream();
+        let body = ReadableStream::from_raw(readable_stream);
+        return Ok(Body::Stream(body));
     }
 
     // URLSearchParams
@@ -411,14 +458,15 @@ async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
     // FormData
     if body.is_instance_of::<web_sys::FormData>() {
         let val = body.dyn_into::<web_sys::FormData>().unwrap_throw();
+
         return Ok(Body::FormData(val));
     }
 
     // ReadableStream
     if body.is_instance_of::<web_sys::ReadableStream>() {
-        let stream = body.dyn_into::<web_sys::ReadableStream>().unwrap_throw();
-        let bytes = readable_stream_to_bytes(stream).await?;
-        return Ok(Body::Bytes(bytes));
+        let readable_stream = body.dyn_into::<web_sys::ReadableStream>().unwrap_throw();
+        let body = ReadableStream::from_raw(readable_stream);
+        return Ok(Body::Stream(body));
     }
 
     // Other objects are converted to strings using their toString() method.
@@ -436,7 +484,7 @@ async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
 async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec<u8>, JsValue> {
     let reader = stream.get_reader();
     let reader = reader
-        .dyn_ref::<ReadableStreamDefaultReader>()
+        .dyn_ref::<web_sys::ReadableStreamDefaultReader>()
         .expect_throw("Expected ReadableStreamDefaultReader, already checked");
 
     let mut data = Vec::new();
