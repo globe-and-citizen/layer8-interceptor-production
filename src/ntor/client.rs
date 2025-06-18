@@ -1,4 +1,5 @@
-use crate::ntor::common::{Certificate, generate_private_public_key_pair, InitSessionMessage, InitSessionResponse, PrivatePublicKeyPair};
+use crate::ntor::common::{Certificate, generate_private_public_key_pair, InitSessionMessage,
+                          InitSessionResponse, PrivatePublicKeyPair};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::*;
@@ -7,6 +8,7 @@ use crate::ntor::common;
 use web_sys::console;
 
 #[wasm_bindgen(getter_with_clone)]
+#[derive(Clone)]
 pub struct Client {
     ephemeral_key_pair: PrivatePublicKeyPair,
     shared_secret: Option<Vec<u8>>,
@@ -14,8 +16,7 @@ pub struct Client {
 
 #[wasm_bindgen]
 impl Client {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let zero_bytes: [u8; 32] = [0; 32];
 
         Self {
@@ -27,8 +28,7 @@ impl Client {
         }
     }
 
-    #[wasm_bindgen]
-    pub fn initialise_session(&mut self) -> InitSessionMessage {
+    pub(crate) fn initialise_session(&mut self) -> InitSessionMessage {
         self.ephemeral_key_pair = generate_private_public_key_pair();
 
         InitSessionMessage {
@@ -36,9 +36,8 @@ impl Client {
         }
     }
 
-    #[wasm_bindgen]
     // Steps 15 - 20 of the Goldberg 2012 paper.
-    pub fn handle_response_from_server(
+    pub(crate) fn handle_response_from_server(
         &mut self,
         server_certificate: &Certificate,
         msg: &InitSessionResponse,

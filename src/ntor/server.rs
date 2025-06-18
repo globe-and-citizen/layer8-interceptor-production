@@ -35,8 +35,7 @@ impl Server {
         }
     }
 
-    #[wasm_bindgen]
-    pub fn get_certificate(&self) -> Certificate {
+    pub(crate) fn get_certificate(&self) -> Certificate {
         // Upon implementation and deployment, it's the Service Provider that will create and then upload a certificate to the Layer8 Authentication Server. Likely, Layer8 will also provide the necessary functions to create one for the client.
         crate::ntor::common::Certificate {
             public_key: self.static_key_pair.public_key,
@@ -44,8 +43,7 @@ impl Server {
         }
     }
 
-    #[wasm_bindgen]
-    pub fn accept_init_session_request(&mut self, init_msg: &InitSessionMessage) -> InitSessionResponse {
+    pub(crate) fn accept_init_session_request(&mut self, init_msg: &InitSessionMessage) -> InitSessionResponse {
         println!("Server:");
 
         // generate session-specific ephemeral key pair

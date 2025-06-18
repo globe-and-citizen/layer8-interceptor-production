@@ -27,5 +27,6 @@ x25519-dalek = {version="^2.0.1", features = ["static_secrets"] }
 getrandom = { version = "0.2", features = ["js"] }
 
 aes-gcm = "0.10"
+serde = { version = "1.0.219", features = ["derive"] }
 
 
