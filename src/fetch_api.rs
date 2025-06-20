@@ -1,21 +1,15 @@
 use std::{collections::HashMap, str::FromStr};
 
-use js_sys::Promise;
-use reqwest::{Method, header::HeaderMap};
+use reqwest::{
+    Method,
+    header::{self, HeaderMap},
+};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
-use web_sys::{
-    AbortSignal, ReferrerPolicy, Request, RequestInit, RequestMode, ResponseInit, console,
-};
+use web_sys::{Request, RequestInit, ResponseInit, console};
 
 use crate::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
-
-// #[wasm_bindgen]
-// extern "C" {
-//     #[wasm_bindgen(js_name = fetch)]
-//     fn fetch_with_request(input: &web_sys::Request) -> Promise;
-// }
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 ///
@@ -183,6 +177,13 @@ impl L8RequestObject {
         if !self.headers.is_empty() {
             let headers: HeaderMap = (&self.headers).try_into().expect_throw("valid headers");
             req_builder = req_builder.headers(headers);
+        }
+
+        // set the no-cors mode if it exists
+        if let Some(mode) = self.mode {
+            if mode as usize == Mode::NoCors as usize {
+                req_builder = req_builder.fetch_mode_no_cors();
+            }
         }
 
         let resp = req_builder

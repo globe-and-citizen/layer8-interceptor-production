@@ -15,21 +15,13 @@ pub fn add_properties_to_request(
     }
 
     // retrieve mode if provided
-    match options.get_mode() {
-        Some(RequestMode::SameOrigin) => {
-            req_wrapper.mode = Some(Mode::SameOrigin);
-        }
-        Some(RequestMode::NoCors) => {
-            req_wrapper.mode = Some(Mode::NoCors);
-        }
-        Some(RequestMode::Cors) => {
-            req_wrapper.mode = Some(Mode::Cors);
-        }
-        Some(RequestMode::Navigate) => {
-            req_wrapper.mode = Some(Mode::Navigate);
-        }
-        _ => {}
-    }
+    req_wrapper.mode = match options.get_mode() {
+        Some(RequestMode::SameOrigin) => Some(Mode::SameOrigin),
+        Some(RequestMode::NoCors) => Some(Mode::NoCors),
+        Some(RequestMode::Cors) => Some(Mode::Cors),
+        Some(RequestMode::Navigate) => Some(Mode::Navigate),
+        _ => Some(Mode::Cors),
+    };
 
     // keepalive
     js_sys::Reflect::get(&options, &"keepalive".into())
@@ -46,62 +38,36 @@ pub fn add_properties_to_request(
         });
 
     // referrer policy
-    if let Some(referrer_policy) = options.get_referrer_policy() {
-        match referrer_policy {
-            ReferrerPolicy::NoReferrer => {
-                req_wrapper
-                    .headers
-                    .insert("Referrer-Policy".to_string(), "no-referrer".to_string());
-            }
-            ReferrerPolicy::NoReferrerWhenDowngrade => {
-                req_wrapper.headers.insert(
-                    "Referrer-Policy".to_string(),
-                    "no-referrer-when-downgrade".to_string(),
-                );
-            }
-            ReferrerPolicy::Origin => {
-                req_wrapper
-                    .headers
-                    .insert("Referrer-Policy".to_string(), "origin".to_string());
-            }
-            ReferrerPolicy::OriginWhenCrossOrigin => {
-                req_wrapper.headers.insert(
-                    "Referrer-Policy".to_string(),
-                    "origin-when-cross-origin".to_string(),
-                );
-            }
-            ReferrerPolicy::UnsafeUrl => {
-                req_wrapper
-                    .headers
-                    .insert("Referrer-Policy".to_string(), "unsafe-url".to_string());
-            }
-            ReferrerPolicy::SameOrigin => {
-                req_wrapper
-                    .headers
-                    .insert("Referrer-Policy".to_string(), "same-origin".to_string());
-            }
-            ReferrerPolicy::StrictOrigin => {
-                req_wrapper
-                    .headers
-                    .insert("Referrer-Policy".to_string(), "strict-origin".to_string());
-            }
-            ReferrerPolicy::StrictOriginWhenCrossOrigin => {
-                req_wrapper.headers.insert(
-                    "Referrer-Policy".to_string(),
-                    "strict-origin-when-cross-origin".to_string(),
-                );
-            }
-            _ => {}
-        }
+    let mut referrer_policy = "";
+    if let Some(referrer_policy_) = options.get_referrer_policy() {
+        referrer_policy = match referrer_policy_ {
+            ReferrerPolicy::NoReferrer => "no-referrer",
+            ReferrerPolicy::NoReferrerWhenDowngrade => "no-referrer-when-downgrade",
+            ReferrerPolicy::Origin => "origin",
+            ReferrerPolicy::OriginWhenCrossOrigin => "origin-when-cross-origin",
+            ReferrerPolicy::UnsafeUrl => "unsafe-url",
+            ReferrerPolicy::SameOrigin => "same-origin",
+            ReferrerPolicy::StrictOrigin => "strict-origin",
+            ReferrerPolicy::StrictOriginWhenCrossOrigin => "strict-origin-when-cross-origin",
+            _ => "",
+        };
+    }
+
+    if !referrer_policy.is_empty() {
+        req_wrapper
+            .headers
+            .insert("Referrer-Policy".to_string(), referrer_policy.to_string());
     }
 
     // referrer
-    options.get_referrer().map(|referrer| {
-        // Update the headers with the referrer
-        req_wrapper
-            .headers
-            .insert("Referrer".to_string(), referrer.to_string());
-    });
+    if referrer_policy != "no-referrer" {
+        // If the referrer policy is not "no-referrer", we can set the referrer header.
+        if let Some(referrer) = options.get_referrer() {
+            req_wrapper
+                .headers
+                .insert("Referrer".to_string(), referrer.to_string());
+        }
+    }
 
     None
 }
