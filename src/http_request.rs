@@ -4,9 +4,10 @@ use wasm_bindgen::{JsValue, UnwrapThrowExt};
 use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::console;
 use serde::{Deserialize, Serialize};
-use crate::ntor::client::{Client as nTorClient};
-use crate::ntor::common::{InitSessionResponse, Certificate};
+use crate::ntor::client::{WasmNTorClient};
 use crate::utils::js_map_to_headers;
+use ntor::common::{InitSessionResponse, NTorCertificate};
+use ntor::client::NTorClient;
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct HttpRequestOptions {
@@ -86,13 +87,13 @@ pub async fn http_post(url: String, body: JsValue, options: Option<HttpRequestOp
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct InitTunnelResult {
-    pub client: nTorClient,
+    pub client: WasmNTorClient,
     pub ntor_session_id: String
 }
 
 #[wasm_bindgen]
 pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValue> {
-    let mut client = nTorClient::new();
+    let mut client = NTorClient::new();
 
     let init_session_msg = client.initialise_session();
 
@@ -134,7 +135,7 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
 
     let init_msg_response = InitSessionResponse::new(response_body.public_key, response_body.t_hash);
 
-    let server_certificate = Certificate::new(response_body.static_public_key, response_body.server_id);
+    let server_certificate = NTorCertificate::new(response_body.static_public_key, response_body.server_id);
 
     let flag = client.handle_response_from_server(&server_certificate, &init_msg_response);
 
@@ -143,7 +144,7 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
     };
 
     let result = InitTunnelResult {
-        client: client,
+        client: WasmNTorClient { client },
         ntor_session_id: response_body.session_id
     };
 
