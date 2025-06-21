@@ -6,7 +6,7 @@ use web_sys::console;
 use serde::{Deserialize, Serialize};
 use crate::ntor::client::{WasmNTorClient};
 use crate::utils::js_map_to_headers;
-use ntor::common::{InitSessionResponse, NTorCertificate};
+use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 use ntor::client::NTorClient;
 
 #[wasm_bindgen(getter_with_clone)]
@@ -104,8 +104,8 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
 
     #[derive(Deserialize)]
     struct InitTunnelResponse {
-        public_key: Vec<u8>,
-        t_hash: Vec<u8>,
+        ephemeral_public_key: Vec<u8>,
+        t_b_hash: Vec<u8>,
         server_id: String,
         static_public_key: Vec<u8>,
         session_id: String
@@ -127,13 +127,13 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
         Ok(bytes) => bytes.to_vec(),
         Err(err) => {
             console::error_1(&format!("Cannot read response body: {}", err).into());
-            return Err(err.into())
+            return Err(JsValue::from_str(&format!("Cannot read response body: {:?}", err)))
         }
     };
 
     let response_body = serde_json::from_slice::<InitTunnelResponse>(&response_bytes).unwrap_throw();
 
-    let init_msg_response = InitSessionResponse::new(response_body.public_key, response_body.t_hash);
+    let init_msg_response = InitSessionResponse::new(response_body.ephemeral_public_key, response_body.t_b_hash);
 
     let server_certificate = NTorCertificate::new(response_body.static_public_key, response_body.server_id);
 
@@ -142,6 +142,8 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
     if !flag {
         return Err(JsValue::from_str("Failed to create nTor Client"))
     };
+
+    console::log_1(&format!("NTor shared secret: {:?}", client.get_shared_secret().unwrap_throw()).into());
 
     let result = InitTunnelResult {
         client: WasmNTorClient { client },

@@ -5,58 +5,9 @@ const fileUpload = document.getElementById("file-upload");
 
 document.getElementById("test-wasm").addEventListener("click", () => {
     interceptor_wasm.test_wasm();
-
-    // let client = new interceptor_wasm.Client()
-    //
-    // let server_id = "server id";
-    // let server = new interceptor_wasm.Server(server_id);
-    //
-    // let init_session_msg = client.initialise_session();
-    // let init_session_res = server.accept_init_session_request(init_session_msg);
-    //
-    // console.log("init msg", init_session_msg.to_json())
-    // let success_flag = client.handle_response_from_server(server.get_certificate(), init_session_res)
-    // console.log("success flag", success_flag)
-    //
-    // let data = "data to encrypt"
-    // let uint8 = new TextEncoder().encode(data)
-    // let encrypted = client.encrypt(uint8)
-    //
-    // let decrypted = client.decrypt(encrypted.nonce, encrypted.encrypted)
-    // let deciphered = new TextDecoder().decode(decrypted);
-    // console.log("deciphered:", deciphered)
-
-    // console.log("=================================================")
-
-
-    // client = new interceptor_wasm.Client()
-    // init_session_msg = client.initialise_session();
-    // let init_session_response: interceptor_wasm.InitSessionResponse
-
-    // interceptor_wasm.http_post("http://localhost:6191/ntor_init", {
-    //     public_key: Array.from(init_session_msg.public_key())
-    // }).then(response => {
-    //     console.log("res msg:", response)
-    //     console.log(response.get("public_key"), response.get("t_hash"))
-    //     // init_session_response.set_public_key()
-    //     // init_session_response.t_hash = response.get("t_hash")
-    //
-    //     let headers = new Map<string, string>([
-    //         ["Content-Type", "application/json"],
-    //         ["nTor_session_id", response.get("session_id")]
-    //     ]);
-    //     let options = new interceptor_wasm.HttpRequestOptions();
-    //     options.headers = headers;
-    //
-    //     init_session_response = new interceptor_wasm.InitSessionResponse(new Uint8Array(response.get("public_key")), new Uint8Array(response.get("t_hash")))
-    //     let nTorCertificate = new interceptor_wasm.Certificate(new Uint8Array(response.get("static_public_key")), response.get("server_id"))
-    //     console.log("init res", init_session_response.to_json())
-    //     console.log("server cert", nTorCertificate.to_json())
-    //
-    //     let flag = client.handle_response_from_server(nTorCertificate, init_session_response)
-    //     console.log("flag", flag)
-    interceptor_wasm.init_tunnel("http://localhost:6191/ntor_init")
+    interceptor_wasm.init_tunnel("http://localhost:6191/init-tunnel")
         .then(res => {
+            console.log("init-tunnel success:", res);
 
             let client = res.client
 
@@ -95,7 +46,7 @@ document.getElementById("test-wasm").addEventListener("click", () => {
             })
 
         }).catch(err => {
-        console.error(err)
+        console.error("init-tunnel error:", err)
     })
 });
 
