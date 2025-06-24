@@ -1,20 +1,53 @@
-use web_sys::{AbortSignal, ReferrerPolicy, RequestMode, console};
+use web_sys::{ReferrerPolicy, RequestMode};
 
 use crate::fetch_api::{L8RequestObject, Mode};
 
+// Ref: <https://developer.mozilla.org/en-US/docs/Web/API/Request>
 pub fn add_properties_to_request(
     req_wrapper: &mut L8RequestObject,
     options: &web_sys::RequestInit,
-) -> Option<AbortSignal> {
-    // signal
-    if let Some(signal) = options.get_signal() {
-        // If the signal is provided, we can handle it here if needed.
-        // For now, we just log it.
-        console::log_1(&format!("AbortSignal: {:?}", signal).into());
-        return Some(signal);
-    }
+) {
+    // body used
+    req_wrapper.body_used = false; // default value
 
-    // retrieve mode if provided
+    // cache
+    req_wrapper.cache = js_sys::Reflect::get(&options, &"cache".into())
+        .ok()
+        .and_then(|val| val.as_string())
+        .unwrap_or_else(|| "default".to_string()); // "default" — The browser looks for a matching request in its HTTP cache.
+
+    // credentials
+    req_wrapper.credentials = js_sys::Reflect::get(&options, &"credentials".into())
+        .ok()
+        .and_then(|val| val.as_string())
+        .unwrap_or_else(|| "same-origin".to_string()); // "same-origin" — The browser includes credentials in the request if the URL is on the same origin as the calling script.
+
+    // destination
+    req_wrapper.destination = js_sys::Reflect::get(&options, &"destination".into())
+        .ok()
+        .and_then(|val| val.as_string())
+        .unwrap_or_else(|| "".to_string()); // "" — The request does not have a specific destination.
+
+    // integrity
+    req_wrapper.integrity = js_sys::Reflect::get(&options, &"integrity".into())
+        .ok()
+        .and_then(|val| val.as_string())
+        .unwrap_or_else(|| "".to_string()); // "" — The request does not have an integrity value.
+
+    // is_history_navigation
+    req_wrapper.is_history_navigation =
+        js_sys::Reflect::get(&options, &"isHistoryNavigation".into())
+            .ok()
+            .and_then(|val| val.as_bool())
+            .unwrap_or(false); // false — The request is not a history navigation.
+
+    // keepalive
+    js_sys::Reflect::get(&options, &"keepalive".into())
+        .ok()
+        .and_then(|val| val.as_bool())
+        .map(|keep_alive| req_wrapper.keep_alive = Some(keep_alive));
+
+    // mode
     req_wrapper.mode = match options.get_mode() {
         Some(RequestMode::SameOrigin) => Some(Mode::SameOrigin),
         Some(RequestMode::NoCors) => Some(Mode::NoCors),
@@ -22,12 +55,6 @@ pub fn add_properties_to_request(
         Some(RequestMode::Navigate) => Some(Mode::Navigate),
         _ => Some(Mode::Cors),
     };
-
-    // keepalive
-    js_sys::Reflect::get(&options, &"keepalive".into())
-        .ok()
-        .and_then(|val| val.as_bool())
-        .map(|keep_alive| req_wrapper.keep_alive = Some(keep_alive));
 
     // redirect
     js_sys::Reflect::get(&options, &"redirect".into())
@@ -69,5 +96,6 @@ pub fn add_properties_to_request(
         }
     }
 
-    None
+    // signal
+    req_wrapper.signal = options.get_signal();
 }

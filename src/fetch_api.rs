@@ -1,15 +1,12 @@
 use std::{collections::HashMap, str::FromStr};
 
-use reqwest::{
-    Method,
-    header::{self, HeaderMap},
-};
+use reqwest::{Method, header::HeaderMap};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
-use web_sys::{Request, RequestInit, ResponseInit, console};
+use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 
-use crate::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
+use crate::formdata::parse_form_data_to_array;
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 ///
@@ -19,12 +16,22 @@ use crate::{formdata::parse_form_data_to_array, req_properties::add_properties_t
 pub struct L8RequestObject {
     pub url: String,
     pub method: String,
-    pub body: Option<Vec<u8>>,
     pub headers: HashMap<String, String>,
     pub url_params: HashMap<String, String>,
-    pub mode: Option<Mode>,
+    pub body: Option<Vec<u8>>,
+
+    pub body_used: bool,
+    pub cache: String,
+    pub credentials: String,
+    pub destination: String,
+    pub integrity: String,
+    pub is_history_navigation: bool,
     pub keep_alive: Option<bool>,
+    pub mode: Option<Mode>,
     pub redirect: Option<String>,
+
+    #[serde(skip)]
+    pub signal: Option<AbortSignal>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -83,10 +90,6 @@ impl L8RequestObject {
             url,
             ..Default::default()
         };
-
-        if let Some(signal) = add_properties_to_request(&mut req_wrapper, &options) {
-            // todo
-        }
 
         req_wrapper.method = match options.get_method() {
             Some(val) => val.trim().to_uppercase(),
@@ -186,10 +189,37 @@ impl L8RequestObject {
             }
         }
 
-        let resp = req_builder
-            .send()
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to send request: {}", e)))?;
+        let resp_result = req_builder.send().await;
+
+        let resp = match resp_result {
+            Ok(response) => response,
+            Err(err) => {
+                if let Some(abort_signal) = &self.signal {
+                    // if there was an abort signal, we log the error add return that instead
+                    console::warn_1(
+                        &format!("Request failed with error: {}", err.to_string()).into(),
+                    );
+
+                    if abort_signal.aborted() {
+                        console::warn_1(&"Request was aborted".into());
+                        return Err(format!(
+                            "Request was aborted, reason: {}",
+                            abort_signal
+                                .reason()
+                                .as_string()
+                                .unwrap_or("Unknown reason".to_string())
+                        )
+                        .into());
+                    }
+                }
+
+                // If the request fails, we throw an error with the details.
+                return Err(JsValue::from_str(&format!(
+                    "Failed to send request: {}",
+                    err.to_string()
+                )));
+            }
+        };
 
         // Constructing a web_sys::Response from the reqwest::Response
         Ok(construct_js_response(resp).await)
