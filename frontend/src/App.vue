@@ -30,7 +30,7 @@
       <!-- Fetch API scenarios -->
 
       <!-- Simple Get -->
-      <button @click="interceptor_wasm.fetch('http://localhost:3000/hello').
+      <button @click="interceptor_wasm.fetch('http://localhost:6191/hello').
         then(val => console.log('Fetch Result for Simple Get:', {
           // iterate on and console log headers
           headers: Object.fromEntries(val.headers.entries()),
@@ -41,7 +41,7 @@
       </button>
 
       <!-- Get with an options arg -->
-      <button @click="interceptor_wasm.fetch('http://localhost:3000/hello', { method: 'GET' }).
+      <button @click="interceptor_wasm.fetch('http://localhost:6191/hello', { method: 'GET' }).
         then(val =>
           console.log('Fetch Result for Get with Options:', { headers: Object.fromEntries(val.headers.entries()), val })
         ).catch(err => console.error('Fetch Error:', err))" class="btn btn-primary pretty-button">
@@ -70,7 +70,7 @@
       </button>
 
       <!-- Test plaintext data with fecth -->
-      <button @click="interceptor_wasm.fetch('http://localhost:3000/echo', { method: 'POST', body: 'Hello, World!', headers: { 'Content-Type': 'text/plain' } }).
+      <button @click="interceptor_wasm.fetch('http://localhost:6191/echo', { method: 'POST', body: 'Hello, World!', headers: { 'Content-Type': 'text/plain' } }).
         then(val => val.text().then(text => console.log('Fetch Result for Plaintext Data:', text)))
         .catch(err => console.error('Fetch Error:', err))" class="btn btn-primary pretty-button">
         Plaintext Data
@@ -86,7 +86,7 @@
       </div>
 
       <!-- Testing url params -->
-      <button @click="interceptor_wasm.fetch('http://localhost:3000/params', {
+      <button @click="interceptor_wasm.fetch('http://localhost:6191/params', {
         body: params,
       }).
         then(val => val.text().then(text => console.log('Fetch Result for URL Params:', text)))
@@ -101,8 +101,8 @@
 <script setup>
 import * as interceptor_wasm from "interceptor-wasm";
 
-const simpleGetReq = new Request('http://localhost:3000/hello');
-const fetchWithMethodBody = new Request('http://localhost:3000/hello', {
+const simpleGetReq = new Request('http://localhost:6191/hello');
+const fetchWithMethodBody = new Request('http://localhost:6191/hello', {
   method: 'POST',
   body: JSON.stringify({ name: 'FetchAPI' }),
   headers: { 'Content-Type': 'application/json' }
@@ -120,7 +120,7 @@ const sendFormData = () => {
     formData.append('my_file', fileInput.files[0]);
   }
   // formData.append('message', 'Hello, World!');
-  interceptor_wasm.fetch('http://localhost:3000/formdata', {
+  interceptor_wasm.fetch('http://localhost:6191/formdata', {
     method: 'POST',
     body: formData,
   })
