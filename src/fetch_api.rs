@@ -6,7 +6,7 @@ use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
 use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 
-use crate::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
+use crate::{formdata::parse_form_data_in_memory, req_properties::add_properties_to_request};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 ///
@@ -112,7 +112,7 @@ impl L8RequestObject {
 
                 Body::FormData(form_data) => {
                     let boundary = uuid::Uuid::new_v4().to_string();
-                    let data = parse_form_data_to_array(form_data, boundary.clone()).await?;
+                    let data = parse_form_data_in_memory(form_data, boundary.clone()).await?;
 
                     // set content type for multipart/form-data
                     req_wrapper.headers.insert(
