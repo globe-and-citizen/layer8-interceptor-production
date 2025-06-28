@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 use web_sys::console;
 use ntor::common::{NTorParty};
+use serde::{Serialize, Deserialize};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
@@ -44,9 +45,17 @@ impl WasmNTorClient {
             Err(err) => Err(JsError::new(err))
         };
     }
+
+    pub fn tmp_encrypt(&self, data: Vec<u8>) -> Result<EncryptedMessage, JsError> {
+        Ok(EncryptedMessage {
+            nonce: vec![0; 12], // Placeholder nonce
+            data: data,
+        })
+    }
 }
 
 #[wasm_bindgen(getter_with_clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct EncryptedMessage {
     pub nonce: Vec<u8>,
     pub data: Vec<u8>,

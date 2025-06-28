@@ -7,13 +7,13 @@ document.getElementById("test-wasm").addEventListener("click", () => {
     interceptor_wasm.test_wasm();
     interceptor_wasm.init_tunnel("http://localhost:6191/init-tunnel")
         .then(res => {
-            console.log("init-tunnel success:", res);
-
+            // console.log("init-tunnel success:", res);
+            //
             let client = res.client
-
+            //
             let headers = new Map<string, string>([
                 ["Content-Type", "application/json"],
-                ["nTor_session_id", res.ntor_session_id]
+                // ["nTor_session_id", res.ntor_session_id]
             ]);
             let options = new interceptor_wasm.HttpRequestOptions();
             options.headers = headers;
@@ -22,14 +22,14 @@ document.getElementById("test-wasm").addEventListener("click", () => {
                 username: "tester",
                 password: "1234"
             }
-            const bodyBytes = new TextEncoder().encode(JSON.stringify(body));
-            let encrypted = client.encrypt(bodyBytes);
-            let encryptedBody = {
-                nonce: Array.from(encrypted.nonce),
-                encrypted: Array.from(encrypted.data)
-            }
+            // const bodyBytes = new TextEncoder().encode(JSON.stringify(body));
+            // let encrypted = client.encrypt(bodyBytes);
+            // let encryptedBody = {
+            //     nonce: Array.from(encrypted.nonce),
+            //     encrypted: Array.from(encrypted.data)
+            // }
 
-            interceptor_wasm.http_post("http://localhost:6191/login", encryptedBody, options)
+            interceptor_wasm.http_post(res,"http://localhost:6191", "/login", body, options)
                 .then(response => {
                     console.log("login encrypted res", response, response.get("encrypted"), response.get("nonce"))
 

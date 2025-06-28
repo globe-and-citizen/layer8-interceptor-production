@@ -5,33 +5,40 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::console;
 use serde::{Deserialize, Serialize};
 use crate::ntor::client::{WasmNTorClient};
-use crate::utils::js_map_to_headers;
+use crate::utils::{js_map_to_headers, jsvalue_to_vec_u8, map_serialize};
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 use ntor::client::NTorClient;
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct HttpRequestOptions {
-    pub headers: Option<js_sys::Map>
+    pub headers: js_sys::Map,
 }
 
 #[wasm_bindgen]
 impl HttpRequestOptions {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        return HttpRequestOptions{
-            headers: None
-        }
+        return HttpRequestOptions {
+            headers: js_sys::Map::new()
+        };
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct WrappedUserRequest {
+    method: String,
+    url: String,
+    headers: String,
+    body: Vec<u8>,
 }
 
 #[wasm_bindgen]
 pub async fn http_get(url: String, options: Option<HttpRequestOptions>) -> Result<JsValue, JsValue> {
-
     let mut header_map = HeaderMap::new();
     if let Some(opts) = options {
-        if let Some(headers) = opts.headers {
-            header_map = js_map_to_headers(&headers);
-        }
+        header_map = js_map_to_headers(&opts.headers);
+        console::log_1(&format!("Headers: {}", opts.headers.to_string()).into());
+        console::log_1(&format!("Headers: {}", map_serialize(&opts.headers)).into());
     }
 
     let response = reqwest::Client::new()
@@ -53,22 +60,59 @@ pub async fn http_get(url: String, options: Option<HttpRequestOptions>) -> Resul
 }
 
 #[wasm_bindgen]
-pub async fn http_post(url: String, body: JsValue, options: Option<HttpRequestOptions>) -> Result<JsValue, JsValue> {
+pub async fn http_post(
+    ntor_result: InitTunnelResult,
+    host: String,
+    uri: String,
+    body: JsValue,
+    options: Option<HttpRequestOptions>
+) -> Result<JsValue, JsValue> {
 
-    let mut header_map = HeaderMap::new();
+    let mut serialized_header = "[]".to_string();
     if let Some(opts) = options {
-        if let Some(headers) = opts.headers {
-            header_map = js_map_to_headers(&headers);
-        }
+        // console::log_1(&format!("Headers: {}", map_serialize(&opts.headers)).into());
+        serialized_header = map_serialize(&opts.headers);
     }
 
     // convert body from JsValue to serde_json::Value
-    let body: serde_json::Value = serde_wasm_bindgen::from_value(body.clone()).map_err(|e| JsValue::from_str(&format!("Body parse error: {}", e)))?;
+    let new_body: serde_json::Value = serde_wasm_bindgen::from_value(body.clone())
+        .map_err(
+            |e| JsValue::from_str(&format!("Body parse error: {}", e))
+        )?;
+
+    let serialized_body = match jsvalue_to_vec_u8(&body) {
+        Ok(vec) => vec,
+        Err(e) => {
+            console::error_1((&e).into());
+            return Err(e);
+        }
+    };
+
+    let wrapped_request = WrappedUserRequest {
+        method: "POST".to_string(),
+        url: format!("{}{}", host, uri),
+        headers: serialized_header,
+        body: serialized_body,
+    };
+    console::log_1(&format!("WrappedUserRequest: {:?}", wrapped_request).into());
+
+    let wrapped_request_bytes = serde_json::to_vec(&wrapped_request).unwrap_throw();
+
+    let encrypted_request = match ntor_result.client.tmp_encrypt(wrapped_request_bytes) {
+        Ok(encrypted) => encrypted,
+        Err(e) => {
+            // console::error_1(&format!("Encryption error: {}", e).into());
+            return Err(e.into());
+        }
+    };
+
+    console::log_1(&format!("EncryptedRequest: {:?}", encrypted_request).into());
 
     let response = reqwest::Client::new()
-        .post(url)
-        .headers(header_map)
-        .body(serde_json::to_string(&body).unwrap_throw())
+        .post(format!("{}/proxy", host))
+        .header("Content-Type", "application/json")
+        .header("ntor-session-id", ntor_result.ntor_session_id)
+        .body(serde_json::to_string(&encrypted_request).unwrap_throw())
         .send()
         .await
         .map_err(|e| JsValue::from_str(&format!("Request failed: {}", e)))?;
@@ -88,7 +132,7 @@ pub async fn http_post(url: String, body: JsValue, options: Option<HttpRequestOp
 #[wasm_bindgen(getter_with_clone)]
 pub struct InitTunnelResult {
     pub client: WasmNTorClient,
-    pub ntor_session_id: String
+    pub ntor_session_id: String,
 }
 
 #[wasm_bindgen]
@@ -99,7 +143,7 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
 
     #[derive(Serialize)]
     struct InitTunnelRequest {
-        pub public_key: Vec<u8>
+        pub public_key: Vec<u8>,
     }
 
     #[derive(Deserialize)]
@@ -108,7 +152,7 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
         t_b_hash: Vec<u8>,
         server_id: String,
         static_public_key: Vec<u8>,
-        session_id: String
+        session_id: String,
     }
 
     let request_body = InitTunnelRequest {
@@ -127,7 +171,7 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
         Ok(bytes) => bytes.to_vec(),
         Err(err) => {
             console::error_1(&format!("Cannot read response body: {}", err).into());
-            return Err(JsValue::from_str(&format!("Cannot read response body: {:?}", err)))
+            return Err(JsValue::from_str(&format!("Cannot read response body: {:?}", err)));
         }
     };
 
@@ -140,14 +184,14 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
     let flag = client.handle_response_from_server(&server_certificate, &init_msg_response);
 
     if !flag {
-        return Err(JsValue::from_str("Failed to create nTor Client"))
+        return Err(JsValue::from_str("Failed to create nTor Client"));
     };
 
     console::log_1(&format!("NTor shared secret: {:?}", client.get_shared_secret().unwrap_throw()).into());
 
     let result = InitTunnelResult {
         client: WasmNTorClient { client },
-        ntor_session_id: response_body.session_id
+        ntor_session_id: response_body.session_id,
     };
 
     Ok(result)
