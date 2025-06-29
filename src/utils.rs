@@ -101,3 +101,11 @@ pub fn jsvalue_to_vec_u8(val: &JsValue) -> Result<Vec<u8>, JsValue> {
     // Convert to bytes
     Ok(json_str.into_bytes())
 }
+
+pub fn struct_to_vec<T>(value: &T) -> Result<Vec<u8>, JsValue>
+where
+    T: serde::Serialize,
+{
+    serde_json::to_vec(value)
+        .map_err(|e| JsValue::from_str(&format!("serde_json error: {}", e)))
+}

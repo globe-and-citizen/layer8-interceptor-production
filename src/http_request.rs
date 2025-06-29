@@ -8,6 +8,7 @@ use crate::ntor::client::{WasmNTorClient};
 use crate::utils::{js_map_to_headers, jsvalue_to_vec_u8, map_serialize};
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 use ntor::client::NTorClient;
+use crate::utils;
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct HttpRequestOptions {
@@ -27,7 +28,7 @@ impl HttpRequestOptions {
 #[derive(Serialize, Deserialize, Debug)]
 struct WrappedUserRequest {
     method: String,
-    url: String,
+    uri: String,
     headers: String,
     body: Vec<u8>,
 }
@@ -37,7 +38,6 @@ pub async fn http_get(url: String, options: Option<HttpRequestOptions>) -> Resul
     let mut header_map = HeaderMap::new();
     if let Some(opts) = options {
         header_map = js_map_to_headers(&opts.headers);
-        console::log_1(&format!("Headers: {}", opts.headers.to_string()).into());
         console::log_1(&format!("Headers: {}", map_serialize(&opts.headers)).into());
     }
 
@@ -59,26 +59,17 @@ pub async fn http_get(url: String, options: Option<HttpRequestOptions>) -> Resul
     Ok(serde_wasm_bindgen::to_value(&body).unwrap_throw())
 }
 
-#[wasm_bindgen]
-pub async fn http_post(
-    ntor_result: InitTunnelResult,
-    host: String,
+fn wrap_request(
     uri: String,
     body: JsValue,
     options: Option<HttpRequestOptions>
-) -> Result<JsValue, JsValue> {
+) -> Result<Vec<u8>, JsValue> {
 
     let mut serialized_header = "[]".to_string();
     if let Some(opts) = options {
-        // console::log_1(&format!("Headers: {}", map_serialize(&opts.headers)).into());
+        console::log_1(&format!("Serialized headers: {}", map_serialize(&opts.headers)).into());
         serialized_header = map_serialize(&opts.headers);
     }
-
-    // convert body from JsValue to serde_json::Value
-    let new_body: serde_json::Value = serde_wasm_bindgen::from_value(body.clone())
-        .map_err(
-            |e| JsValue::from_str(&format!("Body parse error: {}", e))
-        )?;
 
     let serialized_body = match jsvalue_to_vec_u8(&body) {
         Ok(vec) => vec,
@@ -90,15 +81,33 @@ pub async fn http_post(
 
     let wrapped_request = WrappedUserRequest {
         method: "POST".to_string(),
-        url: format!("{}{}", host, uri),
+        uri,
         headers: serialized_header,
         body: serialized_body,
     };
     console::log_1(&format!("WrappedUserRequest: {:?}", wrapped_request).into());
 
-    let wrapped_request_bytes = serde_json::to_vec(&wrapped_request).unwrap_throw();
+    utils::struct_to_vec(&wrapped_request)
+}
 
-    let encrypted_request = match ntor_result.client.tmp_encrypt(wrapped_request_bytes) {
+#[wasm_bindgen]
+pub async fn http_post(
+    ntor_result: InitTunnelResult,
+    host: String,
+    uri: String,
+    body: JsValue,
+    options: Option<HttpRequestOptions>
+) -> Result<JsValue, JsValue> {
+
+    let wrapped_request_bytes = match wrap_request(uri, body, options) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            console::error_1((&e).into());
+            return Err(e);
+        }
+    };
+
+    let encrypted_request = match ntor_result.client.encrypt(wrapped_request_bytes) {
         Ok(encrypted) => encrypted,
         Err(e) => {
             // console::error_1(&format!("Encryption error: {}", e).into());
@@ -131,8 +140,8 @@ pub async fn http_post(
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct InitTunnelResult {
-    pub client: WasmNTorClient,
-    pub ntor_session_id: String,
+    client: WasmNTorClient, // todo replace by `client: ntor::client::NTorClient`
+    ntor_session_id: String,
 }
 
 #[wasm_bindgen]
