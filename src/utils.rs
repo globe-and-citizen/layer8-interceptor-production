@@ -109,3 +109,15 @@ where
     serde_json::to_vec(value)
         .map_err(|e| JsValue::from_str(&format!("serde_json error: {}", e)))
 }
+
+pub fn vec_to_struct<T>(bytes: Vec<u8>) -> Result<T, JsValue>
+where
+    T: serde::de::DeserializeOwned,
+{
+    serde_json::from_slice(&bytes)
+        .map_err(|e| JsValue::from_str(&format!("serde_json error: {}", e)))
+}
+
+pub fn vec_to_string(vec: Vec<u8>) -> String {
+    String::from_utf8_lossy(&vec).to_string()
+}
