@@ -1,10 +1,14 @@
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import {defineConfig} from 'vite'
 import wasm from "vite-plugin-wasm";
 
 export default defineConfig({
-  plugins: [
-    vue(),
-    wasm()
-  ],
+    plugins: [
+        wasm()
+    ],
+    server: {
+        open: true, // Automatically open the browser
+        fs: {
+            allow: ['..'], // Allow access to parent directory for WASM files
+        },
+    }
 })
