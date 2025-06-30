@@ -3,6 +3,8 @@ use web_sys::console;
 use ntor::common::{NTorParty};
 use serde::{Serialize, Deserialize};
 
+
+/// Deprecated: The `ntor::client::NTorClient` was used directly, so this struct no logger needs to be exported.
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
 pub struct WasmNTorClient {
@@ -19,13 +21,13 @@ impl WasmNTorClient {
     }
 
     #[wasm_bindgen]
-    pub fn encrypt(&self, data: Vec<u8>) -> Result<EncryptedMessage, JsError> {
+    pub fn encrypt(&self, data: Vec<u8>) -> Result<WasmEncryptedMessage, JsError> {
         console::debug_1(&format!("Encrypt input: {:?}", data).into());
         return match self.client.wasm_encrypt(data) {
             Ok((nonce, encrypted)) => {
                 console::debug_1(&format!("Encrypted nonce: {:?}", nonce).into());
                 console::debug_1(&format!("Encrypted data: {:?}", encrypted).into());
-                Ok(EncryptedMessage {
+                Ok(WasmEncryptedMessage {
                     nonce: nonce.to_vec(),
                     data: encrypted,
                 })
@@ -46,8 +48,8 @@ impl WasmNTorClient {
         };
     }
 
-    pub fn tmp_encrypt(&self, data: Vec<u8>) -> Result<EncryptedMessage, JsError> {
-        Ok(EncryptedMessage {
+    pub fn tmp_encrypt(&self, data: Vec<u8>) -> Result<WasmEncryptedMessage, JsError> {
+        Ok(WasmEncryptedMessage {
             nonce: vec![0; 12], // Placeholder nonce
             data: data,
         })
@@ -56,7 +58,7 @@ impl WasmNTorClient {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct EncryptedMessage {
+pub struct WasmEncryptedMessage {
     pub nonce: Vec<u8>,
     pub data: Vec<u8>,
 }
