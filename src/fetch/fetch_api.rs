@@ -1,17 +1,17 @@
 use std::{collections::HashMap, str::FromStr};
 
+use ntor::common::{EncryptedMessage, NTorParty};
 use reqwest::{Method, header::HeaderMap};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
 use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 
-use crate::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
+use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
+use crate::http_request::InitTunnelResult;
+use crate::network_state::{NETWORK_STATE, check_state_is_initialized};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
-///
-/// At the moment though, we are using reqwest to send the request parts and not the whole serialized object
-/// as a payload.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct L8RequestObject {
     pub url: String,
@@ -20,19 +20,38 @@ pub struct L8RequestObject {
     pub url_params: HashMap<String, String>,
     pub body: Option<Vec<u8>>,
 
+    // User agent configurations
+    #[serde(skip)]
     pub body_used: bool,
+    #[serde(skip)]
     pub cache: String,
+    #[serde(skip)]
     pub credentials: String,
+    #[serde(skip)]
     pub destination: String,
+    #[serde(skip)]
     pub integrity: String,
+    #[serde(skip)]
     pub is_history_navigation: bool,
+    #[serde(skip)]
     pub keep_alive: Option<bool>,
+    #[serde(skip)]
     pub mode: Option<Mode>,
+    #[serde(skip)]
     pub redirect: Option<String>,
-
     #[serde(skip)]
     pub signal: Option<AbortSignal>,
 }
+
+#[derive(Deserialize)] // TODO
+pub struct L8ResponseObject {
+    pub status: u16,
+    pub status_text: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+pub const PROXY_URL: &str = "http://localhost:6191"; // TODO: make dynamic
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Mode {
@@ -49,14 +68,16 @@ pub enum Mode {
 }
 
 impl L8RequestObject {
-    pub async fn new(resource: JsValue, options: Option<RequestInit>) -> Result<Self, JsValue> {
-        let url = retrieve_resource_url(&resource)?;
-
+    pub async fn new(
+        backend_url: String,
+        resource: JsValue,
+        options: Option<RequestInit>,
+    ) -> Result<Self, JsValue> {
         // using the Request object to fetch the resource
         if let Some(req) = resource.dyn_ref::<Request>() {
             let mut req_wrapper = L8RequestObject {
                 method: req.method().to_string().trim().to_uppercase(),
-                url,
+                url: backend_url,
                 ..Default::default()
             };
 
@@ -78,7 +99,7 @@ impl L8RequestObject {
             None => {
                 // using only the URL to fetch the resource, with assumed GET method
                 return Ok(L8RequestObject {
-                    url,
+                    url: backend_url,
                     method: String::from("GET"),
                     ..Default::default()
                 });
@@ -87,7 +108,7 @@ impl L8RequestObject {
 
         // Using the resource URL and options object to fetch the resource
         let mut req_wrapper = L8RequestObject {
-            url,
+            url: backend_url,
             ..Default::default()
         };
 
@@ -155,8 +176,85 @@ impl L8RequestObject {
         Ok(req_wrapper)
     }
 
+    pub async fn send(
+        self,
+        client: &reqwest::Client,
+        init_tunnel: &InitTunnelResult,
+    ) -> Result<web_sys::Response, JsValue> {
+        let data = serde_json::to_vec(&self).expect_throw(
+            "we expect the L8requestObject to be asserted as json serializable at compile time",
+        );
+
+        let msg = {
+            let encrypted = init_tunnel.client.encrypt(data).map_err(|e| {
+                JsValue::from_str(&format!("Failed to encrypt request data: {}", e))
+            })?;
+
+            serde_json::to_vec(&encrypted).map_err(|e| {
+                JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e))
+            })?
+        };
+
+        let response = client
+            .post(format!("{}/proxy", PROXY_URL))
+            .header("content-type", "application/json")
+            .header("ntor-session-id", init_tunnel.ntor_session_id.clone())
+            .body(msg)
+            .send()
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to send request: {}", e)))?;
+
+        // Just checking for an ok status
+        if response.status() != reqwest::StatusCode::OK {
+            return Err(JsValue::from_str(&format!(
+                "Request failed with status: {}",
+                response.status()
+            )));
+        }
+
+        let body = &response.bytes().await.map_err(|e| {
+            JsValue::from_str(&format!("Failed to read response body: {}", e.to_string()))
+        })?;
+
+        let encrypted_data = serde_json::from_slice::<EncryptedMessage>(&body).map_err(|e| {
+            JsValue::from_str(&format!("Failed to deserialize response body: {}", e))
+        })?;
+
+        let decrypted_response = init_tunnel
+            .client
+            .decrypt(encrypted_data)
+            .map_err(|e| JsValue::from_str(&format!("Failed to decrypt response data: {}", e)))?;
+
+        let response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)
+            .map_err(|e| JsValue::from_str(&format!("Failed to deserialize response: {}", e)))?;
+
+        // convert L8ResponseObject to web_sys::Response
+        let resp_init = ResponseInit::new();
+        resp_init.set_status(response.status);
+        resp_init.set_status_text(&response.status_text);
+        let js_headers = web_sys::Headers::new().expect_throw("Failed to create Headers object");
+        for (key, value) in response.headers {
+            js_headers
+                .append(&key, &value)
+                .expect_throw("Failed to append header to Headers object");
+        }
+        resp_init.set_headers(&js_headers);
+        let array = js_sys::Uint8Array::new_with_length(response.body.len() as u32);
+        array.copy_from(&response.body);
+        match web_sys::Response::new_with_opt_js_u8_array_and_init(Some(&array), &resp_init) {
+            Ok(response) => Ok(response),
+            Err(err) => {
+                throw_str(&format!(
+                    "Failed to construct JS Response: {:?}",
+                    err.as_string()
+                ));
+            }
+        }
+    }
+
     /// Sends the request parts using the provided reqwest client. Not as a serialized object, but the parts of the request
     /// destructured into method, url, body, headers and params.
+    #[deprecated = "Use `L8RequestObject::send` instead that encrypts the data and sends to the proxy server."]
     async fn send_request_parts(
         self,
         client: reqwest::Client,
@@ -238,12 +336,22 @@ pub async fn fetch(
     resource: JsValue,
     options: Option<RequestInit>,
 ) -> Result<web_sys::Response, JsValue> {
-    let req_wrapper = L8RequestObject::new(resource, options).await?;
+    // before wrapping the request let's make sure we have the tunnel initialized
+    let backend_url = retrieve_resource_url(&resource)?;
+    check_state_is_initialized(&backend_url).await?;
 
-    let client = reqwest::Client::new();
+    let network_state = NETWORK_STATE.with_borrow(|v| v.clone()); // we should not do clones but use references
 
-    let resp = req_wrapper.send_request_parts(client).await?;
+    let (init_state, client) = match network_state.get(&backend_url) {
+        Some(val) => val,
+        None => {
+            // unreachable since wr are calling `check_state_is_initialized` before this
+            return Err(JsValue::from_str("Network state is not initialized"));
+        }
+    };
 
+    let req_object = L8RequestObject::new(backend_url, resource, options).await?;
+    let resp = req_object.send(client, init_state).await?;
     Ok(resp)
 }
 

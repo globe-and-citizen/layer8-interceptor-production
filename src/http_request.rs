@@ -1,12 +1,10 @@
 use crate::ntor::client::WasmEncryptedMessage;
-use crate::utils;
-use crate::utils::{js_map_to_headers, jsvalue_to_vec_u8, map_serialize};
+use crate::utils::{self, js_map_to_headers, jsvalue_to_vec_u8, map_serialize};
 use bytes::Bytes;
 use ntor::client::NTorClient;
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
-use std::io::Read;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsValue, UnwrapThrowExt};
 use web_sys::console;
@@ -108,8 +106,8 @@ fn wrap_request(
     utils::struct_to_vec(&wrapped_request)
 }
 
-#[wasm_bindgen]
-pub async fn http_post(
+// #[wasm_bindgen]
+async fn http_post(
     ntor_result: InitTunnelResult,
     host: String,
     uri: String,
@@ -212,14 +210,15 @@ pub async fn http_post(
     return Ok(beResponse);
 }
 
-#[wasm_bindgen(getter_with_clone)]
-pub struct InitTunnelResult {
-    client: ntor::client::NTorClient,
-    ntor_session_id: String,
+// #[wasm_bindgen(getter_with_clone)]
+#[derive(Clone)]
+pub(crate) struct InitTunnelResult {
+    pub client: ntor::client::NTorClient,
+    pub ntor_session_id: String,
 }
 
-#[wasm_bindgen]
-pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValue> {
+// #[wasm_bindgen]
+pub(crate) async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValue> {
     let mut client = NTorClient::new();
 
     let init_session_msg = client.initialise_session();
