@@ -40,7 +40,7 @@ struct WrappedBackendResponse {
 }
 
 #[wasm_bindgen(getter_with_clone)]
-struct WasmResponse {
+pub struct WasmResponse {
     pub status: u16,
     pub headers: js_sys::Map,
     pub body: JsValue,
@@ -166,10 +166,7 @@ async fn http_post(
         }
         Err(e) => {
             console::error_1(&format!("Cannot read response body: {}", e).into());
-            return Err(JsValue::from_str(&format!(
-                "Cannot read response body: {:?}",
-                e
-            )));
+            return Err(e.to_string().into());
         }
     };
 
@@ -199,24 +196,24 @@ async fn http_post(
     };
 
     // Reconstruct the response
-    let beHeaders = utils::map_deserialize(&decrypted_response.headers);
+    let be_headers = utils::map_deserialize(&decrypted_response.headers);
     let body: serde_json::Value = utils::vec_to_struct(decrypted_response.body).unwrap_throw();
-    let beBody = serde_wasm_bindgen::to_value(&body).unwrap_throw();
+    let be_body = serde_wasm_bindgen::to_value(&body).unwrap_throw();
 
-    let beResponse = WasmResponse {
+    let be_response = WasmResponse {
         status: decrypted_response.status,
-        headers: beHeaders,
-        body: beBody,
+        headers: be_headers,
+        body: be_body,
     };
 
-    return Ok(beResponse);
+    return Ok(be_response);
 }
 
-// #[wasm_bindgen(getter_with_clone)]
 #[derive(Clone)]
-pub(crate) struct InitTunnelResult {
-    pub client: ntor::client::NTorClient,
-    pub ntor_session_id: String,
+#[wasm_bindgen(getter_with_clone)]
+pub struct InitTunnelResult {
+    pub(crate) client: ntor::client::NTorClient,
+    pub(crate) ntor_session_id: String,
 }
 
 // #[wasm_bindgen]
