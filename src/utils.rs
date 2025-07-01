@@ -2,6 +2,8 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use wasm_bindgen::prelude::*;
 use js_sys;
 use web_sys::console;
+use serde_json::Value;
+use std::collections::HashMap;
 
 #[wasm_bindgen]
 pub fn test_wasm() -> bool {
@@ -49,7 +51,7 @@ pub async fn get_static(uri: String) -> Result<JsValue, JsValue> {
     Ok(result)
 }
 
-pub fn js_map_to_headers(headers: &js_sys::Map) -> HeaderMap {
+pub fn js_map_to_http_header_map(headers: &js_sys::Map) -> HeaderMap {
     let mut header_map = HeaderMap::new();
 
     headers.for_each(&mut |value, key| {
@@ -62,7 +64,7 @@ pub fn js_map_to_headers(headers: &js_sys::Map) -> HeaderMap {
     header_map
 }
 
-pub fn map_serialize(map: &js_sys::Map) -> String {
+pub fn js_map_to_string(map: &js_sys::Map) -> String {
     let array = js_sys::Array::new();
     map.for_each(&mut |value, key| {
         if let (Some(key_str), Some(value_str)) = (key.as_string(), value.as_string()) {
@@ -73,7 +75,7 @@ pub fn map_serialize(map: &js_sys::Map) -> String {
     js_sys::JSON::stringify(&array).unwrap_or_else(|_| "[]".to_string().into()).into()
 }
 
-pub fn map_deserialize(json: &str) -> js_sys::Map {
+pub fn string_to_js_map(json: &str) -> js_sys::Map {
     let array = js_sys::JSON::parse(json)
         .unwrap_or_else(|_| JsValue::from_str("[]"))
         .dyn_into::<js_sys::Array>()
@@ -89,6 +91,39 @@ pub fn map_deserialize(json: &str) -> js_sys::Map {
         }
     }
     map
+}
+
+pub fn js_map_to_hashmap(map: &js_sys::Map) -> Result<HashMap<String, Value>, JsValue> {
+    let mut result = HashMap::new();
+    let entries = map.entries();
+
+    // entries() returns an iterator of [key, value] arrays
+    while let Some(entry) = js_sys::try_iter(&entries)?.and_then(|mut it| it.next()) {
+        let pair = entry?;
+        let arr = js_sys::Array::from(&pair);
+        if arr.length() == 2 {
+            let key = arr.get(0);
+            let value = arr.get(1);
+            if let Some(key_str) = key.as_string() {
+                let value_json: Value = serde_wasm_bindgen::from_value(value)
+                    .map_err(|e| JsValue::from_str(&format!("serde_wasm_bindgen error: {}", e)))?;
+                result.insert(key_str, value_json);
+            }
+        }
+    }
+    Ok(result)
+}
+
+
+pub fn hashmap_to_js_map(map: &HashMap<String, Value>) -> Result<js_sys::Map, JsValue> {
+    let js_map = js_sys::Map::new();
+    for (key, value) in map {
+        let js_key = JsValue::from_str(key);
+        let js_value = serde_wasm_bindgen::to_value(value)
+            .map_err(|e| JsValue::from_str(&format!("serde_wasm_bindgen error: {}", e)))?;
+        js_map.set(&js_key, &js_value);
+    }
+    Ok(js_map)
 }
 
 pub fn jsvalue_to_vec_u8(val: &JsValue) -> Result<Vec<u8>, JsValue> {
