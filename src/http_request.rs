@@ -72,8 +72,10 @@ pub async fn http_get(
             Bytes::from(vec![])
         }
     };
-    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_throw();
-    Ok(serde_wasm_bindgen::to_value(&body).unwrap_throw())
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes)
+        .expect_throw("Failed to deserialize response body as json");
+    Ok(serde_wasm_bindgen::to_value(&body)
+        .expect_throw("Failed to convert response body to JsValue"))
 }
 
 fn wrap_request(
@@ -218,7 +220,7 @@ pub(crate) struct InitTunnelResult {
 }
 
 // #[wasm_bindgen]
-pub(crate) async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValue> {
+pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValue> {
     let mut client = NTorClient::new();
 
     let init_session_msg = client.initialise_session();
@@ -244,7 +246,10 @@ pub(crate) async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult,
     let response = reqwest::Client::new()
         .post(backend_url)
         .header("Content-Length", "application/json")
-        .body(serde_json::to_string(&request_body).unwrap_throw())
+        .body(
+            serde_json::to_string(&request_body)
+                .expect_throw("Failed to serialize request body to JSON"),
+        )
         .send()
         .await
         .map_err(|e| JsValue::from_str(&format!("Request failed: {}", e)))?;
@@ -260,8 +265,17 @@ pub(crate) async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult,
         }
     };
 
-    let response_body =
-        serde_json::from_slice::<InitTunnelResponse>(&response_bytes).unwrap_throw();
+    // log the response bytes for debugging
+    console::log_1(
+        &format!(
+            "Response bytes: {}",
+            utils::vec_to_string(response_bytes.clone())
+        )
+        .into(),
+    );
+
+    let response_body = serde_json::from_slice::<InitTunnelResponse>(&response_bytes)
+        .expect_throw("Failed to deserialize response body as InitTunnelResponse");
 
     let init_msg_response =
         InitSessionResponse::new(response_body.ephemeral_public_key, response_body.t_b_hash);

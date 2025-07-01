@@ -1,8 +1,8 @@
-use reqwest::header::HeaderMap;
-use wasm_bindgen::prelude::*;
-use web_sys::{console};
-use serde_wasm_bindgen;
 use bytes::Bytes;
+use reqwest::header::HeaderMap;
+use serde_wasm_bindgen;
+use wasm_bindgen::prelude::*;
+use web_sys::console;
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct WGPBackendConfig {
@@ -35,14 +35,14 @@ impl WGPBackendConfig {
 
 #[wasm_bindgen]
 pub struct WGPBackend {
-    config: WGPBackendConfig
+    config: WGPBackendConfig,
 }
 
 #[wasm_bindgen]
 impl WGPBackend {
     #[wasm_bindgen(constructor)]
     pub fn new(config: WGPBackendConfig) -> WGPBackend {
-        WGPBackend {config}
+        WGPBackend { config }
     }
 
     async fn get(&self, url: &String, headers: HeaderMap) -> Result<JsValue, JsValue> {
@@ -60,15 +60,25 @@ impl WGPBackend {
                 Bytes::from(vec![])
             }
         };
-        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_throw();
-        Ok(serde_wasm_bindgen::to_value(&body).unwrap_throw())
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes)
+            .expect_throw("Failed to deserialize response body as json");
+        Ok(serde_wasm_bindgen::to_value(&body)
+            .expect_throw("Failed to convert response body to JsValue"))
     }
 
-    async fn post(&self, url: &String, headers: HeaderMap, body: serde_json::Value) -> Result<JsValue, JsValue> {
+    async fn post(
+        &self,
+        url: &String,
+        headers: HeaderMap,
+        body: serde_json::Value,
+    ) -> Result<JsValue, JsValue> {
         let response = reqwest::Client::new()
             .post(url)
             .headers(headers)
-            .body(serde_json::to_string(&body).unwrap_throw())
+            .body(
+                serde_json::to_string(&body)
+                    .expect_throw("Failed to serialize request body to JSON"),
+            )
             .send()
             .await
             .map_err(|e| JsValue::from_str(&format!("Request failed: {}", e)))?;
@@ -81,14 +91,21 @@ impl WGPBackend {
             }
         };
 
-        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_throw();
-        Ok(serde_wasm_bindgen::to_value(&body).unwrap_throw())
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes)
+            .expect_throw("Failed to deserialize response body as json");
+        Ok(serde_wasm_bindgen::to_value(&body)
+            .expect_throw("Failed to convert response body to JsValue"))
     }
 
     pub async fn login(&self, username: String, password: String) -> Result<JsValue, JsValue> {
         let url = self.config.base_url.clone() + &self.config.login;
         let mut headers = HeaderMap::new();
-        headers.insert("Content-Type", "application/json".parse().unwrap_throw());
+        headers.insert(
+            "Content-Type",
+            "application/json"
+                .parse()
+                .expect_throw("Failed to parse Content-Type header"),
+        );
 
         let body = serde_json::json!({
             "username": username,
@@ -101,7 +118,12 @@ impl WGPBackend {
     pub async fn register(&self, username: String, password: String) -> Result<JsValue, JsValue> {
         let url = self.config.base_url.clone() + &self.config.register;
         let mut headers = HeaderMap::new();
-        headers.insert("Content-Type", "application/json".parse().unwrap_throw());
+        headers.insert(
+            "Content-Type",
+            "application/json"
+                .parse()
+                .expect_throw("Failed to parse Content-Type header"),
+        );
 
         let body = serde_json::json!({
             "username": username,
@@ -119,7 +141,12 @@ impl WGPBackend {
         }
 
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", token.parse().unwrap_throw());
+        headers.insert(
+            "Authorization",
+            token
+                .parse()
+                .expect_throw("Failed to parse Authorization header"),
+        );
         self.get(&url, headers).await
     }
 
@@ -131,7 +158,12 @@ impl WGPBackend {
         }
 
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", token.parse().unwrap_throw());
+        headers.insert(
+            "Authorization",
+            token
+                .parse()
+                .expect_throw("Failed to parse Authorization header"),
+        );
 
         self.get(&url, headers).await
     }
@@ -141,9 +173,13 @@ impl WGPBackend {
         let url = self.config.base_url.clone() + &self.config.get_profile_path;
 
         let mut headers = HeaderMap::new();
-        headers.insert("Authorization", token.parse().unwrap_throw());
+        headers.insert(
+            "Authorization",
+            token
+                .parse()
+                .expect_throw("Failed to parse Authorization header"),
+        );
 
         self.get(&url, headers).await
     }
 }
-

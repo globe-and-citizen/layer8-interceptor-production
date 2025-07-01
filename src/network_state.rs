@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, fmt::format};
+use std::{cell::RefCell, collections::HashMap};
 
 use wasm_bindgen::JsValue;
 
@@ -23,7 +23,11 @@ pub async fn check_state_is_initialized(provider_url: &str) -> Result<(), JsValu
     let client = reqwest::Client::new();
 
     // try todo tunnel initialization
-    let val = init_tunnel(format!("{}/init_tunnel", PROXY_URL)).await?;
+    let val = init_tunnel(format!(
+        "{}/init-tunnel?backend_url={}",
+        PROXY_URL, provider_url
+    ))
+    .await?;
 
     // store the result in the NETWORK_STATE
     NETWORK_STATE.with_borrow_mut(|state| {
