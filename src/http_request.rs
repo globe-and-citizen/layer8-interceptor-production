@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use bytes::Bytes;
 use reqwest::header::HeaderMap;
 use wasm_bindgen::{JsValue, UnwrapThrowExt};
@@ -5,7 +6,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::console;
 use serde::{Deserialize, Serialize};
 use crate::ntor::client::{WasmEncryptedMessage};
-use crate::utils::{js_map_to_headers, jsvalue_to_vec_u8, map_serialize};
+use crate::utils::{js_map_to_http_header_map, jsvalue_to_vec_u8, js_map_to_string};
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 use ntor::client::NTorClient;
 use crate::utils;
@@ -52,8 +53,8 @@ pub struct WasmResponse {
 pub async fn http_get(url: String, options: Option<HttpRequestOptions>) -> Result<JsValue, JsValue> {
     let mut header_map = HeaderMap::new();
     if let Some(opts) = options {
-        header_map = js_map_to_headers(&opts.headers);
-        console::log_1(&format!("Headers: {}", map_serialize(&opts.headers)).into());
+        header_map = js_map_to_http_header_map(&opts.headers);
+        console::log_1(&format!("Headers: {}", js_map_to_string(&opts.headers)).into());
     }
 
     let response = reqwest::Client::new()
@@ -82,8 +83,8 @@ fn wrap_request(
 
     let mut serialized_header = "[]".to_string();
     if let Some(opts) = options {
-        console::log_1(&format!("Serialized headers: {}", map_serialize(&opts.headers)).into());
-        serialized_header = map_serialize(&opts.headers);
+        console::log_1(&format!("Serialized headers: {}", js_map_to_string(&opts.headers)).into());
+        serialized_header = js_map_to_string(&opts.headers);
     }
 
     let serialized_body = match jsvalue_to_vec_u8(&body) {
@@ -180,7 +181,7 @@ pub async fn http_post(
     };
 
     // Reconstruct the response
-    let be_headers = utils::map_deserialize(&decrypted_response.headers);
+    let be_headers = utils::string_to_js_map(&decrypted_response.headers);
     let body: serde_json::Value = utils::vec_to_struct(decrypted_response.body).unwrap_throw();
     let be_body = serde_wasm_bindgen::to_value(&body).unwrap_throw();
 
