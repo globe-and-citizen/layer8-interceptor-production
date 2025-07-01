@@ -27,7 +27,7 @@ impl HttpRequestOptions {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         return HttpRequestOptions {
-            headers: js_sys::Map::new()
+            headers: js_sys::Map::new(),
         };
     }
 }
@@ -56,7 +56,10 @@ pub struct WasmResponse {
 
 /// Deprecated
 #[wasm_bindgen]
-pub async fn http_get(url: String, options: Option<HttpRequestOptions>) -> Result<JsValue, JsValue> {
+pub async fn http_get(
+    url: String,
+    options: Option<HttpRequestOptions>,
+) -> Result<JsValue, JsValue> {
     let mut header_map = HeaderMap::new();
     if let Some(opts) = options {
         header_map = js_map_to_http_header_map(&opts.headers);
@@ -77,14 +80,16 @@ pub async fn http_get(url: String, options: Option<HttpRequestOptions>) -> Resul
             Bytes::from(vec![])
         }
     };
-    let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap_throw();
-    Ok(serde_wasm_bindgen::to_value(&body).unwrap_throw())
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes)
+        .expect_throw("Failed to deserialize response body as json");
+    Ok(serde_wasm_bindgen::to_value(&body)
+        .expect_throw("Failed to convert response body to JsValue"))
 }
 
 fn wrap_request(
     uri: String,
     body: JsValue,
-    options: Option<HttpRequestOptions>
+    options: Option<HttpRequestOptions>,
 ) -> Result<Vec<u8>, JsValue> {
 
     let mut serialized_header: HashMap<String, serde_json::Value> = HashMap::new();
@@ -117,13 +122,13 @@ fn wrap_request(
     utils::struct_to_vec(&wrapped_request)
 }
 
-#[wasm_bindgen]
-pub async fn http_post(
+// #[wasm_bindgen]
+async fn http_post(
     ntor_result: InitTunnelResult,
     host: String,
     uri: String,
     body: JsValue,
-    options: Option<HttpRequestOptions>
+    options: Option<HttpRequestOptions>,
 ) -> Result<WasmResponse, JsValue> {
 
     // wrap user request to Layer8RequestObject - the Interceptor's `/proxy` request body
@@ -149,6 +154,7 @@ pub async fn http_post(
     let response = reqwest::Client::new()
         .post(format!("{}/proxy", host))
         .header("Content-Type", "application/json")
+        .header("Access-Control-Allow-Headers", "Content-Length")
         .header("ntor-session-id", ntor_result.ntor_session_id)
         .body(serde_json::to_string(&encrypted_request).unwrap_throw())
         .send()
@@ -165,15 +171,14 @@ pub async fn http_post(
                 utils::vec_to_string(bytes.to_vec())).into()
             );
 
-            utils::vec_to_struct(bytes.to_vec())
-                .map_err(|e| {
-                    console::error_1((&e).into());
-                    e
-                })?
-        },
+            utils::vec_to_struct(bytes.to_vec()).map_err(|e| {
+                console::error_1((&e).into());
+                e
+            })?
+        }
         Err(e) => {
             console::error_1(&format!("Cannot read response body: {}", e).into());
-            return Err(e.into());
+            return Err(e.to_string().into());
         }
     };
 
@@ -214,16 +219,17 @@ pub async fn http_post(
         body: be_body,
     };
 
-    return Ok(be_response)
+    return Ok(be_response);
 }
 
+#[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct InitTunnelResult {
-    client: ntor::client::NTorClient,
-    ntor_session_id: String,
+    pub(crate) client: ntor::client::NTorClient,
+    pub(crate) ntor_session_id: String,
 }
 
-#[wasm_bindgen]
+// #[wasm_bindgen]
 pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValue> {
     let mut client = NTorClient::new();
 
@@ -250,7 +256,10 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
     let response = reqwest::Client::new()
         .post(backend_url)
         .header("Content-Length", "application/json")
-        .body(serde_json::to_string(&request_body).unwrap_throw())
+        .body(
+            serde_json::to_string(&request_body)
+                .expect_throw("Failed to serialize request body to JSON"),
+        )
         .send()
         .await
         .map_err(|e| JsValue::from_str(&format!("Request failed: {}", e)))?;
@@ -259,7 +268,10 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
         Ok(bytes) => bytes.to_vec(),
         Err(err) => {
             console::error_1(&format!("Cannot read response body: {}", err).into());
-            return Err(JsValue::from_str(&format!("Cannot read response body: {:?}", err)));
+            return Err(JsValue::from_str(&format!(
+                "Cannot read response body: {:?}",
+                err
+            )));
         }
     };
 

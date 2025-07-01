@@ -33,14 +33,14 @@ pub async fn init_encrypted_tunnel(config: JsValue) -> Result<JsValue, JsValue> 
     Ok(result)
 }
 
-#[wasm_bindgen]
-pub async fn fetch(url: String, config: JsValue) -> Result<JsValue, JsValue> {
-    console::log_1(&format!("Fetching URL: {}", url).into());
-    console::log_1(&format!("Fetching with config: {:?}", config).into());
-    let promise = js_sys::Promise::resolve(&url.into());
-    let result = wasm_bindgen_futures::JsFuture::from(promise).await?;
-    Ok(result)
-}
+// #[wasm_bindgen]
+// pub async fn fetch(url: String, config: JsValue) -> Result<JsValue, JsValue> {
+//     console::log_1(&format!("Fetching URL: {}", url).into());
+//     console::log_1(&format!("Fetching with config: {:?}", config).into());
+//     let promise = js_sys::Promise::resolve(&url.into());
+//     let result = wasm_bindgen_futures::JsFuture::from(promise).await?;
+//     Ok(result)
+// }
 
 // try to throw an error
 #[wasm_bindgen]

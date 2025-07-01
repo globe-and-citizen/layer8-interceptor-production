@@ -1,8 +1,10 @@
-use wasm_bindgen::prelude::*;
-use web_sys::{console, window, IdbFactory, IdbDatabase, IdbOpenDbRequest, IdbRequest,
-              IdbTransactionMode, DomException};
 use once_cell::unsync::OnceCell;
+use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::js_sys;
+use web_sys::{
+    DomException, IdbDatabase, IdbFactory, IdbOpenDbRequest, IdbRequest, IdbTransactionMode,
+    console, window,
+};
 
 // thread_local! is used to safely manage the global DB variable in a way that is compatible with
 // both the current single-threaded WASM environment and potential future multi-threaded scenarios
@@ -23,22 +25,21 @@ pub fn start() -> Result<(), JsError> {
     // get indexedDB field of window object (crate feature: web-sys::IdbFactory)
     // pub fn indexed_db(&self) -> Result<Option<IdbFactory>, JsValue>
     match window.indexed_db() {
-        Ok(Some(factory)) => {
-            indexed_db = factory
-        }
+        Ok(Some(factory)) => indexed_db = factory,
         Ok(None) => {
             return Err(JsError::new("IndexedDB is not supported"));
         }
         Err(err) => {
-            return Err(JsError::new(&format!("Error accessing IndexedDB: {:?}", err)));
+            return Err(JsError::new(&format!(
+                "Error accessing IndexedDB: {:?}",
+                err
+            )));
         }
     }
 
     let db_request: IdbOpenDbRequest;
     match indexed_db.open(DB_NAME) {
-        Ok(request) => {
-            db_request = request
-        }
+        Ok(request) => db_request = request,
         Err(err) => {
             return Err(JsError::new(&format!("Error opening database: {:?}", err)));
         }
@@ -64,8 +65,17 @@ pub fn start() -> Result<(), JsError> {
     db_request.set_onsuccess(Some(onsuccess_handler_closure.as_ref().unchecked_ref()));
 
     let onerror = Closure::once_into_js(move |event: web_sys::Event| {
-        let request = event.target().unwrap_throw().dyn_into::<IdbOpenDbRequest>().unwrap_throw();
-        let error = request.error().unwrap_throw().unwrap_throw().dyn_into::<DomException>().unwrap_throw();
+        let request = event
+            .target()
+            .unwrap_throw()
+            .dyn_into::<IdbOpenDbRequest>()
+            .unwrap_throw();
+        let error = request
+            .error()
+            .unwrap_throw()
+            .unwrap_throw()
+            .dyn_into::<DomException>()
+            .unwrap_throw();
         console::error_1(&format!("Error opening database: {:?}", error).into());
     });
 
@@ -73,15 +83,24 @@ pub fn start() -> Result<(), JsError> {
 
     // The onupgradeneeded event is triggered when the database is being created or upgraded before onsuccess is called.
     let onupgradeneeded = Closure::once_into_js(move |event: web_sys::Event| {
-        let request = event.target().unwrap_throw().dyn_into::<IdbOpenDbRequest>().unwrap_throw();
-        let db = request.result().unwrap_throw().dyn_into::<IdbDatabase>().unwrap_throw();
+        let request = event
+            .target()
+            .unwrap_throw()
+            .dyn_into::<IdbOpenDbRequest>()
+            .unwrap_throw();
+        let db = request
+            .result()
+            .unwrap_throw()
+            .dyn_into::<IdbDatabase>()
+            .unwrap_throw();
 
         console::log_1(&format!("Upgrading database: {:?}", db.name()).into());
         // Create an object store if it doesn't exist -> feature needed web_sys::DomStringList
         if db.object_store_names().contains(DB_OBJECT_STORE) {
             console::log_1(&"Object store already exists".into());
         } else {
-            db.create_object_store(DB_OBJECT_STORE).expect_throw("should create object store");
+            db.create_object_store(DB_OBJECT_STORE)
+                .expect_throw("should create object store");
             console::log_1(&"Object store created".into());
         }
     });
@@ -108,26 +127,53 @@ pub async fn save_image(filename: String, data: web_sys::Blob) -> Result<JsValue
         let db = DB.with(|global_db| global_db.get().cloned());
 
         if let Some(db) = db {
-            let transaction = db.transaction_with_str_and_mode(DB_OBJECT_STORE, IdbTransactionMode::Readwrite).unwrap_throw();
+            let transaction = db
+                .transaction_with_str_and_mode(DB_OBJECT_STORE, IdbTransactionMode::Readwrite)
+                .unwrap_throw();
             let object_store = transaction.object_store(DB_OBJECT_STORE).unwrap_throw();
-            let object_store_request = object_store.add_with_key(&JsValue::from(data.clone()), &filename.clone().into()).unwrap_throw();
+            let object_store_request = object_store
+                .add_with_key(&JsValue::from(data.clone()), &filename.clone().into())
+                .unwrap_throw();
 
-            object_store_request.set_onsuccess(Some(Closure::once_into_js(move |event: web_sys::Event| {
-                let request = event.target().unwrap_throw().dyn_into::<IdbRequest>().unwrap_throw();
-                let result = request.result().unwrap_throw();
-                resolve.call1(&JsValue::NULL, &result).unwrap_throw();
-            }).as_ref().unchecked_ref()));
+            object_store_request.set_onsuccess(Some(
+                Closure::once_into_js(move |event: web_sys::Event| {
+                    let request = event
+                        .target()
+                        .unwrap_throw()
+                        .dyn_into::<IdbRequest>()
+                        .unwrap_throw();
+                    let result = request.result().unwrap_throw();
+                    resolve.call1(&JsValue::NULL, &result).unwrap_throw();
+                })
+                .as_ref()
+                .unchecked_ref(),
+            ));
 
-            object_store_request.set_onerror(Some(Closure::once_into_js(move |event: web_sys::Event| {
-                let request = event.target().unwrap_throw().dyn_into::<IdbRequest>().unwrap_throw();
-                let error = request.error().unwrap_throw().unwrap_throw().dyn_into::<DomException>().unwrap_throw();
-                console::error_1(&format!("ObjectRequest OnError: {:?}", error).into());
+            object_store_request.set_onerror(Some(
+                Closure::once_into_js(move |event: web_sys::Event| {
+                    let request = event
+                        .target()
+                        .unwrap_throw()
+                        .dyn_into::<IdbRequest>()
+                        .unwrap_throw();
+                    let error = request
+                        .error()
+                        .unwrap_throw()
+                        .unwrap_throw()
+                        .dyn_into::<DomException>()
+                        .unwrap_throw();
+                    console::error_1(&format!("ObjectRequest OnError: {:?}", error).into());
 
-                reject.call1(&JsValue::NULL, &error).unwrap_throw();
-            }).as_ref().unchecked_ref()))
+                    reject.call1(&JsValue::NULL, &error).unwrap_throw();
+                })
+                .as_ref()
+                .unchecked_ref(),
+            ))
         } else {
             console::warn_1(&"Database is not initialized.".into());
-            resolve.call1(&JsValue::NULL, &"Database is not initialized.".into()).unwrap_throw();
+            resolve
+                .call1(&JsValue::NULL, &"Database is not initialized.".into())
+                .unwrap_throw();
         }
     });
 
@@ -147,11 +193,16 @@ pub async fn get_image(keyname: String) -> Result<JsValue, JsValue> {
 
             let value = keyname.clone();
             let onsuccess = Closure::once(move |event: web_sys::Event| {
-                let request = event.target().unwrap_throw().dyn_into::<IdbRequest>().unwrap_throw();
+                let request = event
+                    .target()
+                    .unwrap_throw()
+                    .dyn_into::<IdbRequest>()
+                    .unwrap_throw();
                 let result = request.result().unwrap_throw();
                 match result.dyn_into::<web_sys::Blob>() {
                     Ok(res) => resolve.call1(&JsValue::NULL, &res).unwrap_throw(),
-                    Err(e) => { // blob not found
+                    Err(e) => {
+                        // blob not found
                         console::warn_1(&format!("No Blob found for key:{}", value).into());
                         resolve.call1(&JsValue::NULL, &e).unwrap_throw()
                     }
@@ -161,8 +212,17 @@ pub async fn get_image(keyname: String) -> Result<JsValue, JsValue> {
             onsuccess.forget();
 
             let onerror = Closure::once(move |event: web_sys::Event| {
-                let request = event.target().unwrap_throw().dyn_into::<IdbRequest>().unwrap_throw();
-                let error = request.error().unwrap_throw().unwrap_throw().dyn_into::<DomException>().unwrap_throw();
+                let request = event
+                    .target()
+                    .unwrap_throw()
+                    .dyn_into::<IdbRequest>()
+                    .unwrap_throw();
+                let error = request
+                    .error()
+                    .unwrap_throw()
+                    .unwrap_throw()
+                    .dyn_into::<DomException>()
+                    .unwrap_throw();
                 console::error_1(&format!("ObjectRequest OnError: {:?}", error).into());
 
                 reject.call1(&JsValue::NULL, &error).unwrap_throw();
@@ -171,7 +231,9 @@ pub async fn get_image(keyname: String) -> Result<JsValue, JsValue> {
             onerror.forget();
         } else {
             console::warn_1(&"Database is not initialized.".into());
-            reject.call1(&JsValue::NULL, &"Database is not initialized.".into()).unwrap_throw();
+            reject
+                .call1(&JsValue::NULL, &"Database is not initialized.".into())
+                .unwrap_throw();
         }
     });
 
