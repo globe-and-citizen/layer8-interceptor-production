@@ -5,10 +5,16 @@ use wasm_bindgen::{JsValue, UnwrapThrowExt};
 use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::console;
 use serde::{Deserialize, Serialize};
-use crate::ntor::client::{WasmEncryptedMessage};
-use crate::utils::{js_map_to_http_header_map, jsvalue_to_vec_u8, js_map_to_string};
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 use ntor::client::NTorClient;
+
+use crate::ntor::client::{WasmEncryptedMessage};
+use crate::utils::{
+    js_map_to_http_header_map,
+    jsvalue_to_vec_u8,
+    js_map_to_string,
+    js_map_to_hashmap
+};
 use crate::utils;
 
 #[wasm_bindgen(getter_with_clone)]
@@ -27,18 +33,18 @@ impl HttpRequestOptions {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct WrappedUserRequest {
-    method: String,
-    uri: String,
-    headers: String,
-    body: Vec<u8>,
+struct Layer8RequestObject {
+    pub method: String,
+    pub uri: String,
+    pub headers: HashMap<String, serde_json::Value>,
+    pub body: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct WrappedBackendResponse {
-    status: u16,
-    headers: String,
-    body: Vec<u8>,
+struct Layer8ResponseObject {
+    pub status: u16,
+    pub headers: HashMap<String, serde_json::Value>,
+    pub body: Vec<u8>,
 }
 
 #[wasm_bindgen(getter_with_clone)]
@@ -81,10 +87,15 @@ fn wrap_request(
     options: Option<HttpRequestOptions>
 ) -> Result<Vec<u8>, JsValue> {
 
-    let mut serialized_header = "[]".to_string();
+    let mut serialized_header: HashMap<String, serde_json::Value> = HashMap::new();
     if let Some(opts) = options {
-        console::log_1(&format!("Serialized headers: {}", js_map_to_string(&opts.headers)).into());
-        serialized_header = js_map_to_string(&opts.headers);
+        // serialized_header = js_map_to_string(&opts.headers);
+        serialized_header = js_map_to_hashmap(&opts.headers)
+            .map_err(|e| {
+                console::error_1((&e).into());
+                e
+            })?;
+        console::log_1(&format!("Serialized headers: {:?}", serialized_header).into());
     }
 
     let serialized_body = match jsvalue_to_vec_u8(&body) {
@@ -95,7 +106,7 @@ fn wrap_request(
         }
     };
 
-    let wrapped_request = WrappedUserRequest {
+    let wrapped_request = Layer8RequestObject {
         method: "POST".to_string(),
         uri,
         headers: serialized_header,
@@ -115,7 +126,7 @@ pub async fn http_post(
     options: Option<HttpRequestOptions>
 ) -> Result<WasmResponse, JsValue> {
 
-    // wrap user request to WrappedUserRequest - the Interceptor's `/proxy` request body
+    // wrap user request to Layer8RequestObject - the Interceptor's `/proxy` request body
     let wrapped_request_bytes = match wrap_request(uri, body, options) {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -149,7 +160,10 @@ pub async fn http_post(
     // parse the response body to WasmEncryptedMessage
     let encrypted_response: WasmEncryptedMessage = match response.bytes().await {
         Ok(bytes) => {
-            console::log_1(&format!("Encrypted response body: {}", utils::vec_to_string(bytes.to_vec())).into());
+            console::log_1(&format!(
+                "Encrypted response body: {}",
+                utils::vec_to_string(bytes.to_vec())).into()
+            );
 
             utils::vec_to_struct(bytes.to_vec())
                 .map_err(|e| {
@@ -164,11 +178,16 @@ pub async fn http_post(
     };
 
     // Decrypt the response body using nTor shared secret
-    let decrypted_response = match ntor_result.client.wasm_decrypt(encrypted_response.nonce.to_vec(), encrypted_response.data) {
+    let decrypted_response = match ntor_result.client.wasm_decrypt(
+        encrypted_response.nonce.to_vec(),
+        encrypted_response.data
+    ) {
         Ok(bytes) => {
-            console::log_1(&format!("Decrypted response body: {}", utils::vec_to_string(bytes.clone())).into());
+            console::log_1(
+                &format!("Decrypted response body: {}", utils::vec_to_string(bytes.clone())).into()
+            );
 
-            utils::vec_to_struct::<WrappedBackendResponse>(bytes)
+            utils::vec_to_struct::<Layer8ResponseObject>(bytes)
                 .map_err(|e| {
                     console::error_1((&e).into());
                     e
@@ -181,7 +200,11 @@ pub async fn http_post(
     };
 
     // Reconstruct the response
-    let be_headers = utils::string_to_js_map(&decrypted_response.headers);
+    let be_headers = utils::hashmap_to_js_map(&decrypted_response.headers)
+        .map_err(|e| {
+            console::error_1((&e).into());
+            e
+        })?;
     let body: serde_json::Value = utils::vec_to_struct(decrypted_response.body).unwrap_throw();
     let be_body = serde_wasm_bindgen::to_value(&body).unwrap_throw();
 
@@ -242,9 +265,15 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
 
     let response_body = serde_json::from_slice::<InitTunnelResponse>(&response_bytes).unwrap_throw();
 
-    let init_msg_response = InitSessionResponse::new(response_body.ephemeral_public_key, response_body.t_b_hash);
+    let init_msg_response = InitSessionResponse::new(
+        response_body.ephemeral_public_key,
+        response_body.t_b_hash
+    );
 
-    let server_certificate = NTorCertificate::new(response_body.static_public_key, response_body.server_id);
+    let server_certificate = NTorCertificate::new(
+        response_body.static_public_key,
+        response_body.server_id
+    );
 
     let flag = client.handle_response_from_server(&server_certificate, &init_msg_response);
 
@@ -252,7 +281,9 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
         return Err(JsValue::from_str("Failed to create nTor Client"));
     };
 
-    console::log_1(&format!("NTor shared secret: {:?}", client.get_shared_secret().unwrap_throw()).into());
+    console::log_1(
+        &format!("NTor shared secret: {:?}", client.get_shared_secret().unwrap_throw()).into()
+    );
 
     let result = InitTunnelResult {
         client: client,
