@@ -5,6 +5,29 @@ const fileUpload = document.getElementById("file-upload");
 
 document.getElementById("test-wasm").addEventListener("click", () => {
     interceptor_wasm.test_wasm();
+    interceptor_wasm.init_tunnel("http://localhost:6191/init-tunnel")
+        .then(res => {
+            let headers = new Map<string, string>([
+                ["Content-Type", "application/json"],
+            ]);
+            let options = new interceptor_wasm.HttpRequestOptions();
+            options.headers = headers;
+
+            let body = {
+                username: "tester",
+                password: "1234"
+            }
+
+            interceptor_wasm.http_post(res,"http://localhost:6191", "/login", body, options)
+                .then(response => {
+                    console.log("login res", response)
+                }).catch(err => {
+                console.error("login err", err)
+            })
+
+        }).catch(err => {
+        console.error("init-tunnel error:", err)
+    })
 });
 
 document.getElementById("persistence-check").addEventListener("click", () => {
@@ -20,7 +43,7 @@ document.getElementById("check-encrypted-tunnel").addEventListener("click", () =
 
 document.getElementById("init-encrypted-tunnel").addEventListener("click", () => {
     interceptor_wasm
-        .init_encrypted_tunnel({ hello: "world" })
+        .init_encrypted_tunnel({hello: "world"})
         .then((val) => console.log("InitEncryptedTunnel Result:", val))
         .catch((err) => console.error("InitEncryptedTunnel Error:", err));
 });
