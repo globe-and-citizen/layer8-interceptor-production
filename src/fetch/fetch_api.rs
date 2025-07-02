@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::{collections::HashMap, str::FromStr};
 
 use ntor::common::{EncryptedMessage, NTorParty};
@@ -383,19 +384,22 @@ pub async fn fetch(
     };
 
     check_state_is_initialized(&base_url).await?;
-    let network_state = NETWORK_STATE.with_borrow(|v| v.clone()); // FIXME: we should not do clones but use references
+    let network_state = NETWORK_STATE.with_borrow(|cache| {
+        let state = match cache.get(&base_url) {
+            Some(state) => Arc::clone(state), // This is a reference clone; cannot do interior mutability
+            None => {
+                // unreachable since we are calling `check_state_is_initialized` before this
+                return Err(JsValue::from_str("Network state is not initialized"));
+            }
+        };
 
-    let (init_state, client) = match network_state.get(&base_url) {
-        Some(val) => val,
-        None => {
-            // unreachable since wr are calling `check_state_is_initialized` before this
-            return Err(JsValue::from_str("Network state is not initialized"));
-        }
-    };
+        Ok(state)
+    })?;
 
     let req_object = L8RequestObject::new(backend_url, resource, options).await?;
-
-    let resp = req_object.send(client, init_state).await?;
+    let resp = req_object
+        .send(&network_state.client, &network_state.keychain)
+        .await?;
     Ok(resp)
 }
 
