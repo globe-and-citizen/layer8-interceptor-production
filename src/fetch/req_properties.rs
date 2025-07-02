@@ -1,3 +1,4 @@
+use wasm_bindgen::UnwrapThrowExt;
 use web_sys::{ReferrerPolicy, RequestMode};
 
 use crate::fetch::fetch_api::{L8RequestObject, Mode};
@@ -81,18 +82,24 @@ pub fn add_properties_to_request(
     }
 
     if !referrer_policy.is_empty() {
-        req_wrapper
-            .headers
-            .insert("Referrer-Policy".to_string(), referrer_policy.to_string());
+        req_wrapper.headers.insert(
+            "Referrer-Policy".to_string(),
+            serde_json::from_str(&referrer_policy).expect_throw(
+                "we expect the referrer policy to be a valid string that can be JSON serialized",
+            ),
+        );
     }
 
     // referrer
     if referrer_policy != "no-referrer" {
         // If the referrer policy is not "no-referrer", we can set the referrer header.
         if let Some(referrer) = options.get_referrer() {
-            req_wrapper
-                .headers
-                .insert("Referrer".to_string(), referrer.to_string());
+            req_wrapper.headers.insert(
+                "Referrer".to_string(),
+                serde_json::from_str(&referrer).expect_throw(
+                    "we expect the referrer to be a valid string that can be JSON serialized",
+                ),
+            );
         }
     }
 

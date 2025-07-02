@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::{collections::HashMap, str::FromStr};
 
 use ntor::common::{EncryptedMessage, NTorParty};
-use reqwest::{Method, header::HeaderMap};
+use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
@@ -17,12 +17,8 @@ use crate::network_state::{NETWORK_STATE, check_state_is_initialized};
 pub struct L8RequestObject {
     pub uri: String,
     pub method: String,
-    pub headers: HashMap<String, String>,
-    pub url_params: HashMap<String, String>,
-    pub body: Option<Vec<u8>>,
-
-    #[serde(skip)]
-    pub url: String,
+    pub headers: HashMap<String, serde_json::Value>,
+    pub body: Vec<u8>,
 
     // User agent configurations
     #[serde(skip)]
@@ -47,7 +43,7 @@ pub struct L8RequestObject {
     pub signal: Option<AbortSignal>,
 }
 
-#[derive(Deserialize, Debug)] // TODO
+#[derive(Deserialize, Debug)]
 pub struct L8ResponseObject {
     pub status: u16,
     pub status_text: String,
@@ -81,31 +77,26 @@ impl L8RequestObject {
         let url = url::Url::parse(&backend_url)
             .map_err(|e| JsValue::from_str(&format!("Invalid URL: {}", e)))?;
 
-        let uri = url.path().to_string();
+        let mut uri = url.path().to_string();
+        if let Some(query) = url.query() {
+            uri.push_str(&format!("?{}", query));
+        }
+
         console::log_1(&format!("Request URI: {}", uri).into());
 
         // using the Request object to fetch the resource
         if let Some(req) = resource.dyn_ref::<Request>() {
             let mut req_wrapper = L8RequestObject {
                 method: req.method().to_string().trim().to_uppercase(),
-                url: backend_url.clone(),
                 uri,
                 ..Default::default()
             };
 
-            // url params if any to encode in the request
-            if let Some(query) = url.query() {
-                req_wrapper.url_params = url::form_urlencoded::parse(query.as_bytes())
-                    .into_owned()
-                    .collect();
-            }
-
-            req_wrapper.body = match req.body() {
-                Some(readable_stream) => readable_stream_to_bytes(readable_stream)
+            if let Some(readable_stream) = req.body() {
+                req_wrapper.body = readable_stream_to_bytes(readable_stream)
                     .await
                     .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?
-                    .into(),
-                None => None,
+                    .into();
             };
 
             req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
@@ -119,7 +110,6 @@ impl L8RequestObject {
                 // using only the URL to fetch the resource, with assumed GET method
                 return Ok(L8RequestObject {
                     uri,
-                    url: backend_url.clone(),
                     method: String::from("GET"),
                     ..Default::default()
                 });
@@ -128,7 +118,6 @@ impl L8RequestObject {
 
         // Using the resource URL and options object to fetch the resource
         let mut req_wrapper = L8RequestObject {
-            url: backend_url,
             uri,
             ..Default::default()
         };
@@ -148,9 +137,21 @@ impl L8RequestObject {
             })?;
 
             match body {
-                Body::Bytes(bytes) => req_wrapper.body = Some(bytes),
+                Body::Bytes(bytes) => req_wrapper.body = bytes,
 
-                Body::Params(params) => req_wrapper.url_params = params,
+                Body::Params(params) => {
+                    let query = params
+                        .iter()
+                        .map(|(key, value)| format!("{}={}", key, value))
+                        .collect::<Vec<String>>()
+                        .join("&");
+
+                    // reconstruct the uri
+                    let mut uri = url.path().to_string();
+                    uri.push_str(&format!("?{}", query));
+
+                    req_wrapper.uri = uri;
+                }
 
                 Body::FormData(form_data) => {
                     let boundary = uuid::Uuid::new_v4().to_string();
@@ -159,10 +160,14 @@ impl L8RequestObject {
                     // set content type for multipart/form-data
                     req_wrapper.headers.insert(
                         "Content-Type".to_string(),
-                        format!("multipart/form-data; boundary={}", boundary),
+                        serde_json::from_str(&format!(
+                            "multipart/form-data; boundary={}",
+                            boundary
+                        ))
+                        .expect_throw("a valid string is JSON serializable"),
                     );
 
-                    req_wrapper.body = Some(data);
+                    req_wrapper.body = data;
                 }
 
                 Body::File(file) => {
@@ -174,13 +179,13 @@ impl L8RequestObject {
                         .expect_throw("Failed to convert File to ArrayBuffer");
                     let uint8_array = js_sys::Uint8Array::new(&file_bytes);
 
-                    req_wrapper.body = Some(uint8_array.to_vec());
+                    req_wrapper.body = uint8_array.to_vec();
                 }
 
                 Body::Stream(stream) => {
                     // Convert ReadableStream to bytes
                     let bytes = readable_stream_to_bytes(stream.into_raw()).await?;
-                    req_wrapper.body = Some(bytes);
+                    req_wrapper.body = bytes;
                 }
             }
         }
@@ -222,7 +227,7 @@ impl L8RequestObject {
             .header("ntor-session-id", init_tunnel.ntor_session_id.clone())
             .body(msg);
 
-        if self.body.is_none() || self.body.as_ref().unwrap().is_empty() {
+        if self.body.is_empty() {
             req_builder = req_builder.header("x-empty-body", "true");
         }
 
@@ -266,6 +271,10 @@ impl L8RequestObject {
         resp_init.set_status_text(&response.status_text);
         let js_headers = web_sys::Headers::new().expect_throw("Failed to create Headers object");
         for (key, value) in response.headers {
+            let value = serde_json::to_string(&value).expect_throw(
+                "we expect the header value to be serializable as a JSON string at compile time",
+            );
+
             js_headers
                 .append(&key, &value)
                 .expect_throw("Failed to append header to Headers object");
@@ -296,23 +305,15 @@ impl L8RequestObject {
         let mut req_builder = client.request(method, self.uri);
 
         // set the body if it exists
-        if let Some(body) = self.body {
-            req_builder = req_builder.body(body);
-        }
-
-        // set the url params if they exist
-        if !self.url_params.is_empty() {
-            let encoded_params = self
-                .url_params
-                .into_iter()
-                .collect::<Vec<(String, String)>>();
-            req_builder = req_builder.query(encoded_params.as_slice());
-        }
+        req_builder = req_builder.body(self.body);
 
         // set the headers if they exist
         if !self.headers.is_empty() {
-            let headers: HeaderMap = (&self.headers).try_into().expect_throw("valid headers");
-            req_builder = req_builder.headers(headers);
+            for (header_name, header_value) in &self.headers {
+                req_builder = req_builder.header(header_name, serde_json::to_string(header_value).expect_throw(
+                        "we expect the header value to be serializable as a JSON string at compile time",
+                    ));
+            }
         }
 
         // set the no-cors mode if it exists
@@ -498,7 +499,9 @@ fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
 
 // Ref <https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#setting_headers>
 // we expect the headers to be either Headers or an Object
-fn headers_to_reqwest_headers(js_headers: JsValue) -> Result<HashMap<String, String>, JsValue> {
+fn headers_to_reqwest_headers(
+    js_headers: JsValue,
+) -> Result<HashMap<String, serde_json::Value>, JsValue> {
     // If the headers are undefined or null, we return an empty HeaderMap
     if js_headers.is_null() || js_headers.is_undefined() {
         return Ok(HashMap::new());
@@ -545,9 +548,8 @@ fn headers_to_reqwest_headers(js_headers: JsValue) -> Result<HashMap<String, Str
             .as_string()
             .expect_throw("Expected header name to be a string");
 
-        let header_value = value
-            .as_string()
-            .expect_throw("Expected header value to be a string");
+        let header_value = serde_wasm_bindgen::from_value(value)
+            .map_err(|e| JsValue::from_str(&format!("Failed to convert header value: {}", e)))?;
 
         reqwest_headers.insert(header_name, header_value);
     }
@@ -557,7 +559,7 @@ fn headers_to_reqwest_headers(js_headers: JsValue) -> Result<HashMap<String, Str
 
 fn js_headers_to_reqwest_headers(
     headers: &web_sys::Headers,
-) -> Result<HashMap<String, String>, JsValue> {
+) -> Result<HashMap<String, serde_json::Value>, JsValue> {
     let mut reqwest_headers = HashMap::new();
     for entry in headers.entries() {
         // [key, value] item array
@@ -570,9 +572,8 @@ fn js_headers_to_reqwest_headers(
             .as_string()
             .expect_throw("Expected header name to be a string");
 
-        let header_value = value
-            .as_string()
-            .expect_throw("Expected header value to be a string");
+        let header_value = serde_wasm_bindgen::from_value(value)
+            .map_err(|e| JsValue::from_str(&format!("Failed to convert header value: {}", e)))?;
 
         reqwest_headers.insert(header_name, header_value);
     }
