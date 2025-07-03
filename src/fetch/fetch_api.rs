@@ -49,8 +49,15 @@ pub struct L8RequestObject {
 pub struct L8ResponseObject {
     pub status: u16,
     pub status_text: String,
-    pub headers: Vec<(String, String)>,
+    pub headers: HashMap<String, serde_json::Value>,
     pub body: Vec<u8>,
+
+    /* Below fields are present but not used because ResponseInit does not support */
+    pub ok: bool,
+    pub url: String,
+    pub redirected: bool,
+
+    /* Other fields are ignored because rust and wasm do not support */
 }
 
 pub const PROXY_URL: &str = "http://localhost:6191"; // TODO: make dynamic
@@ -265,17 +272,18 @@ impl L8RequestObject {
             .wasm_decrypt(encrypted_data.nonce, encrypted_data.data)
             .map_err(|e| JsValue::from_str(&format!("Failed to decrypt response data: {}", e)))?;
 
-        let response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)
+        let l8_response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)
             .map_err(|e| JsValue::from_str(&format!("Failed to deserialize response: {}", e)))?;
 
-        console::log_1(&format!("Response: {:?}", response).into());
+        console::log_1(&format!("Response: {:?}", l8_response).into());
 
         // convert L8ResponseObject to web_sys::Response
         let resp_init = ResponseInit::new();
-        resp_init.set_status(response.status);
-        resp_init.set_status_text(&response.status_text);
+        resp_init.set_status(l8_response.status);
+        resp_init.set_status_text(&l8_response.status_text);
+
         let js_headers = web_sys::Headers::new().expect_throw("Failed to create Headers object");
-        for (key, value) in response.headers {
+        for (key, value) in l8_response.headers {
             let value = serde_json::to_string(&value).expect_throw(
                 "we expect the header value to be serializable as a JSON string at compile time",
             );
@@ -285,8 +293,10 @@ impl L8RequestObject {
                 .expect_throw("Failed to append header to Headers object");
         }
         resp_init.set_headers(&js_headers);
-        let array = js_sys::Uint8Array::new_with_length(response.body.len() as u32);
-        array.copy_from(&response.body);
+
+        let array = js_sys::Uint8Array::new_with_length(l8_response.body.len() as u32);
+        array.copy_from(&l8_response.body);
+
         match web_sys::Response::new_with_opt_js_u8_array_and_init(Some(&array), &resp_init) {
             Ok(response) => Ok(response),
             Err(err) => {

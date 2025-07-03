@@ -5,29 +5,31 @@ const fileUpload = document.getElementById("file-upload");
 
 document.getElementById("test-wasm").addEventListener("click", () => {
     interceptor_wasm.test_wasm();
-    interceptor_wasm.init_tunnel("http://localhost:6191/init-tunnel")
-        .then(res => {
-            let headers = new Map<string, string>([
-                ["Content-Type", "application/json"],
-            ]);
-            let options = new interceptor_wasm.HttpRequestOptions();
-            options.headers = headers;
 
-            let body = {
-                username: "tester",
-                password: "1234"
-            }
+    let body = {
+        username: "tester",
+        password: "1234"
+    }
 
-            interceptor_wasm.http_post(res,"http://localhost:6191", "/login", body, options)
-                .then(response => {
-                    console.log("login res", response)
-                }).catch(err => {
-                console.error("login err", err)
-            })
-
-        }).catch(err => {
-        console.error("init-tunnel error:", err)
-    })
+    interceptor_wasm.fetch('http://localhost:3000/login', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+    }).then(response => {
+        console.log("fetch response:", response);
+        if (response.ok) {
+            response.json().then(data => {
+                let token = data.token || data["token"] || data.get("token");
+                console.log('token', token)
+            });
+        } else {
+            alert(`An error occurred while logging in. ${response.status}`);
+        }
+    }).catch(err => {
+        console.error("Fetch error:", err);
+    });
 });
 
 document.getElementById("persistence-check").addEventListener("click", () => {
