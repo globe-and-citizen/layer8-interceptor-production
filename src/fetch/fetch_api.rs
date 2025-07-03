@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::{collections::HashMap, str::FromStr};
 
-use ntor::common::{NTorParty};
+use ntor::common::NTorParty;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
@@ -56,7 +56,6 @@ pub struct L8ResponseObject {
     pub ok: bool,
     pub url: String,
     pub redirected: bool,
-
     /* Other fields are ignored because rust and wasm do not support */
 }
 
@@ -166,10 +165,9 @@ impl L8RequestObject {
                     let boundary = uuid::Uuid::new_v4().to_string();
                     let data = parse_form_data_to_array(form_data, boundary.clone()).await?;
 
-                    // set content type for multipart/form-data
                     req_wrapper.headers.insert(
                         "Content-Type".to_string(),
-                        serde_json::from_str(&format!(
+                        serde_json::to_value(&format!(
                             "multipart/form-data; boundary={}",
                             boundary
                         ))
@@ -228,7 +226,8 @@ impl L8RequestObject {
             serde_json::to_vec(&WasmEncryptedMessage {
                 nonce: nonce.to_vec(),
                 data: encrypted,
-            }).map_err(|e| {
+            })
+            .map_err(|e| {
                 JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e))
             })?
         };
@@ -260,12 +259,13 @@ impl L8RequestObject {
             JsValue::from_str(&format!("Failed to read response body: {}", e.to_string()))
         })?;
 
-        let encrypted_data = serde_json::from_slice::<WasmEncryptedMessage>(&body).map_err(|e| {
-            JsValue::from_str(&format!(
-                "Failed to deserialize EncryptedMessage body: {}",
-                e
-            ))
-        })?;
+        let encrypted_data =
+            serde_json::from_slice::<WasmEncryptedMessage>(&body).map_err(|e| {
+                JsValue::from_str(&format!(
+                    "Failed to deserialize EncryptedMessage body: {}",
+                    e
+                ))
+            })?;
 
         let decrypted_response = init_tunnel
             .client

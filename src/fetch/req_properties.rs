@@ -84,7 +84,7 @@ pub fn add_properties_to_request(
     if !referrer_policy.is_empty() {
         req_wrapper.headers.insert(
             "Referrer-Policy".to_string(),
-            serde_json::from_str(&referrer_policy).expect_throw(
+            serde_json::to_value(&referrer_policy).expect_throw(
                 "we expect the referrer policy to be a valid string that can be JSON serialized",
             ),
         );
@@ -96,7 +96,7 @@ pub fn add_properties_to_request(
         if let Some(referrer) = options.get_referrer() {
             req_wrapper.headers.insert(
                 "Referrer".to_string(),
-                serde_json::from_str(&referrer).expect_throw(
+                serde_json::to_value(&referrer).expect_throw(
                     "we expect the referrer to be a valid string that can be JSON serialized",
                 ),
             );
