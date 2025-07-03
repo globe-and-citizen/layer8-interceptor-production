@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 use ntor::client::NTorClient;
 
-use crate::ntor::client::{WasmEncryptedMessage};
+use crate::ntor::{WasmEncryptedMessage};
 use crate::utils::{
     js_map_to_http_header_map,
     jsvalue_to_vec_u8,

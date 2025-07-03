@@ -1,12 +1,14 @@
 use std::sync::Arc;
 use std::{collections::HashMap, str::FromStr};
 
-use ntor::common::{EncryptedMessage, NTorParty};
+use ntor::common::{NTorParty};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
 use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
+
+use crate::ntor::WasmEncryptedMessage;
 
 use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
 use crate::http_request::InitTunnelResult;
@@ -212,11 +214,14 @@ impl L8RequestObject {
         );
 
         let msg = {
-            let encrypted = init_tunnel.client.encrypt(data).map_err(|e| {
+            let (nonce, encrypted) = init_tunnel.client.wasm_encrypt(data).map_err(|e| {
                 JsValue::from_str(&format!("Failed to encrypt request data: {}", e))
             })?;
 
-            serde_json::to_vec(&encrypted).map_err(|e| {
+            serde_json::to_vec(&WasmEncryptedMessage {
+                nonce: nonce.to_vec(),
+                data: encrypted,
+            }).map_err(|e| {
                 JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e))
             })?
         };
@@ -248,7 +253,7 @@ impl L8RequestObject {
             JsValue::from_str(&format!("Failed to read response body: {}", e.to_string()))
         })?;
 
-        let encrypted_data = serde_json::from_slice::<EncryptedMessage>(&body).map_err(|e| {
+        let encrypted_data = serde_json::from_slice::<WasmEncryptedMessage>(&body).map_err(|e| {
             JsValue::from_str(&format!(
                 "Failed to deserialize EncryptedMessage body: {}",
                 e
@@ -257,7 +262,7 @@ impl L8RequestObject {
 
         let decrypted_response = init_tunnel
             .client
-            .decrypt(encrypted_data)
+            .wasm_decrypt(encrypted_data.nonce, encrypted_data.data)
             .map_err(|e| JsValue::from_str(&format!("Failed to decrypt response data: {}", e)))?;
 
         let response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)

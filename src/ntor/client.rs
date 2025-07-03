@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 use web_sys::console;
-use ntor::common::{NTorParty};
-use serde::{Serialize, Deserialize};
+use ntor::common::NTorParty;
+use crate::ntor::WasmEncryptedMessage;
 
 
 /// Deprecated: The `ntor::client::NTorClient` was used directly, so this struct no logger needs to be exported.
@@ -54,12 +54,5 @@ impl WasmNTorClient {
             data: data,
         })
     }
-}
-
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct WasmEncryptedMessage {
-    pub nonce: Vec<u8>,
-    pub data: Vec<u8>,
 }
 
