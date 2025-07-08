@@ -11,7 +11,7 @@ use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 use crate::ntor::WasmEncryptedMessage;
 
 use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
-use crate::network_state::{NETWORK_STATE, NetworkState, check_state_is_initialized};
+use crate::network_state::{NETWORK_STATE, NetworkState, base_url};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -57,8 +57,6 @@ pub struct L8ResponseObject {
     pub redirected: bool,
     /* Other fields are ignored because rust and wasm do not support */
 }
-
-pub const PROXY_URL: &str = "http://localhost:6191"; // TODO: make dynamic
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Mode {
@@ -233,7 +231,7 @@ impl L8RequestObject {
 
         let mut req_builder = network_state
             .http_client
-            .post(format!("{}/proxy", PROXY_URL))
+            .post(format!("{}/proxy", network_state.forward_proxy_url))
             .header("content-type", "application/json")
             .header(
                 "ntor-session-id",
@@ -388,28 +386,18 @@ pub async fn fetch(
     resource: JsValue,
     options: Option<RequestInit>,
 ) -> Result<web_sys::Response, JsValue> {
-    // before wrapping the request let's make sure we have the tunnel initialized
     let backend_url = retrieve_resource_url(&resource)?;
-    let base_url = {
-        let url = url::Url::parse(&backend_url)
-            .map_err(|e| JsValue::from_str(&format!("Invalid URL: {}", e)))?;
-
-        // get without query or path fragments
-        let mut base_url = format!("{}://{}", url.scheme(), url.host_str().unwrap_or_default());
-        if url.port().is_some() {
-            base_url = format!("{}:{}", base_url, url.port().unwrap())
-        }
-
-        base_url
-    };
-
-    check_state_is_initialized(&base_url).await?;
-    let network_state = NETWORK_STATE.with_borrow(|cache| {
-        let state = match cache.get(&base_url) {
+    let backend_base_url = base_url(&backend_url)?;
+    let network_state = NETWORK_STATE.with_borrow(|cache| {        
+        let state = match cache.get(&backend_base_url) {
             Some(state) => Arc::clone(state), // This is a reference clone; cannot do interior mutability
             None => {
-                // unreachable since we are calling `check_state_is_initialized` before this
-                return Err(JsValue::from_str("Network state is not initialized"));
+                let err = JsValue::from_str(&format!(
+                    "L8 network state for {} is not initialized. Please call `await layer8.initialize_tunnel(..)` first.",
+                    backend_base_url
+                ));
+
+                return Err(err);
             }
         };
 
