@@ -235,7 +235,8 @@ impl L8RequestObject {
         let mut req_builder = client
             .post(format!("{}/proxy", PROXY_URL))
             .header("content-type", "application/json")
-            .header("ntor-session-id", init_tunnel.ntor_session_id.clone())
+            .header("int_rp_jwt", init_tunnel.token1.clone())
+            .header("int_fp_jwt", init_tunnel.token2.clone())
             .body(msg);
 
         if self.body.is_empty() {
