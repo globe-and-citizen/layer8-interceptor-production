@@ -15,8 +15,8 @@ thread_local! {
 }
 
 pub(crate) struct NetworkState {
-    pub client: reqwest::Client,
-    pub keychain: InitTunnelResult,
+    pub http_client: reqwest::Client,
+    pub init_tunnel_result: InitTunnelResult,
 }
 
 pub async fn check_state_is_initialized(provider_url: &str) -> Result<(), JsValue> {
@@ -32,8 +32,8 @@ pub async fn check_state_is_initialized(provider_url: &str) -> Result<(), JsValu
     .await?;
 
     let state = NetworkState {
-        client: reqwest::Client::new(),
-        keychain,
+        http_client: reqwest::Client::new(),
+        init_tunnel_result: keychain,
     };
 
     // store the result in the NETWORK_STATE

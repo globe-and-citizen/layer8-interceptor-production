@@ -11,8 +11,7 @@ use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 use crate::ntor::WasmEncryptedMessage;
 
 use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
-use crate::http_request::InitTunnelResult;
-use crate::network_state::{NETWORK_STATE, check_state_is_initialized};
+use crate::network_state::{NETWORK_STATE, NetworkState, check_state_is_initialized};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -209,19 +208,19 @@ impl L8RequestObject {
         Ok(req_wrapper)
     }
 
-    pub async fn send(
-        self,
-        client: &reqwest::Client,
-        init_tunnel: &InitTunnelResult,
-    ) -> Result<web_sys::Response, JsValue> {
+    pub async fn l8_send(self, network_state: &NetworkState) -> Result<web_sys::Response, JsValue> {
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
 
         let msg = {
-            let (nonce, encrypted) = init_tunnel.client.wasm_encrypt(data).map_err(|e| {
-                JsValue::from_str(&format!("Failed to encrypt request data: {}", e))
-            })?;
+            let (nonce, encrypted) = network_state
+                .init_tunnel_result
+                .client
+                .wasm_encrypt(data)
+                .map_err(|e| {
+                    JsValue::from_str(&format!("Failed to encrypt request data: {}", e))
+                })?;
 
             serde_json::to_vec(&WasmEncryptedMessage {
                 nonce: nonce.to_vec(),
@@ -232,10 +231,14 @@ impl L8RequestObject {
             })?
         };
 
-        let mut req_builder = client
+        let mut req_builder = network_state
+            .http_client
             .post(format!("{}/proxy", PROXY_URL))
             .header("content-type", "application/json")
-            .header("ntor-session-id", init_tunnel.ntor_session_id.clone())
+            .header(
+                "ntor-session-id",
+                network_state.init_tunnel_result.ntor_session_id.clone(),
+            )
             .body(msg);
 
         if self.body.is_empty() {
@@ -267,7 +270,8 @@ impl L8RequestObject {
                 ))
             })?;
 
-        let decrypted_response = init_tunnel
+        let decrypted_response = network_state
+            .init_tunnel_result
             .client
             .wasm_decrypt(encrypted_data.nonce, encrypted_data.data)
             .map_err(|e| JsValue::from_str(&format!("Failed to decrypt response data: {}", e)))?;
@@ -413,9 +417,7 @@ pub async fn fetch(
     })?;
 
     let req_object = L8RequestObject::new(backend_url, resource, options).await?;
-    let resp = req_object
-        .send(&network_state.client, &network_state.keychain)
-        .await?;
+    let resp = req_object.l8_send(&network_state).await?;
     Ok(resp)
 }
 
