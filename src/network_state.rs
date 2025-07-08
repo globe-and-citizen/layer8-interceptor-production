@@ -36,6 +36,8 @@ impl ServiceProvider {
 /// This function initializes the encrypted tunnel for the given service providers.
 /// It checks if the provider already has an initialized tunnel, if not it initializes a new tunnel
 /// and stores the result.
+///
+/// Make sure this call is blocking (**is being awaited**) before making any requests to the service providers.,
 #[wasm_bindgen(js_name = "initEncryptedTunnel")]
 pub async fn init_encrypted_tunnel(
     forward_proxy_url: String,
