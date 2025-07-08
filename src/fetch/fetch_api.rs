@@ -11,8 +11,7 @@ use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 use crate::ntor::WasmEncryptedMessage;
 
 use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
-use crate::http_request::InitTunnelResult;
-use crate::network_state::{NETWORK_STATE, check_state_is_initialized};
+use crate::network_state::{NETWORK_STATE, NetworkState, base_url};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -58,8 +57,6 @@ pub struct L8ResponseObject {
     pub redirected: bool,
     /* Other fields are ignored because rust and wasm do not support */
 }
-
-pub const PROXY_URL: &str = "http://localhost:6191"; // TODO: make dynamic
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Mode {
@@ -209,19 +206,19 @@ impl L8RequestObject {
         Ok(req_wrapper)
     }
 
-    pub async fn send(
-        self,
-        client: &reqwest::Client,
-        init_tunnel: &InitTunnelResult,
-    ) -> Result<web_sys::Response, JsValue> {
+    pub async fn l8_send(self, network_state: &NetworkState) -> Result<web_sys::Response, JsValue> {
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
 
         let msg = {
-            let (nonce, encrypted) = init_tunnel.client.wasm_encrypt(data).map_err(|e| {
-                JsValue::from_str(&format!("Failed to encrypt request data: {}", e))
-            })?;
+            let (nonce, encrypted) = network_state
+                .init_tunnel_result
+                .client
+                .wasm_encrypt(data)
+                .map_err(|e| {
+                    JsValue::from_str(&format!("Failed to encrypt request data: {}", e))
+                })?;
 
             serde_json::to_vec(&WasmEncryptedMessage {
                 nonce: nonce.to_vec(),
@@ -232,11 +229,13 @@ impl L8RequestObject {
             })?
         };
 
-        let mut req_builder = client
-            .post(format!("{}/proxy", PROXY_URL))
+        let mut req_builder = network_state
+            .http_client
+            .post(format!("{}/proxy", network_state.forward_proxy_url))
             .header("content-type", "application/json")
-            .header("int_rp_jwt", init_tunnel.token1.clone())
-            .header("int_fp_jwt", init_tunnel.token2.clone())
+            .header("int_rp_jwt", network_state.init_tunnel_result.token1.clone())
+            .header("int_fp_jwt", network_state.init_tunnel_result.token2.clone(),
+            )
             .body(msg);
 
         if self.body.is_empty() {
@@ -268,7 +267,8 @@ impl L8RequestObject {
                 ))
             })?;
 
-        let decrypted_response = init_tunnel
+        let decrypted_response = network_state
+            .init_tunnel_result
             .client
             .wasm_decrypt(encrypted_data.nonce, encrypted_data.data)
             .map_err(|e| JsValue::from_str(&format!("Failed to decrypt response data: {}", e)))?;
@@ -385,28 +385,18 @@ pub async fn fetch(
     resource: JsValue,
     options: Option<RequestInit>,
 ) -> Result<web_sys::Response, JsValue> {
-    // before wrapping the request let's make sure we have the tunnel initialized
     let backend_url = retrieve_resource_url(&resource)?;
-    let base_url = {
-        let url = url::Url::parse(&backend_url)
-            .map_err(|e| JsValue::from_str(&format!("Invalid URL: {}", e)))?;
-
-        // get without query or path fragments
-        let mut base_url = format!("{}://{}", url.scheme(), url.host_str().unwrap_or_default());
-        if url.port().is_some() {
-            base_url = format!("{}:{}", base_url, url.port().unwrap())
-        }
-
-        base_url
-    };
-
-    check_state_is_initialized(&base_url).await?;
+    let backend_base_url = base_url(&backend_url)?;
     let network_state = NETWORK_STATE.with_borrow(|cache| {
-        let state = match cache.get(&base_url) {
+        let state = match cache.get(&backend_base_url) {
             Some(state) => Arc::clone(state), // This is a reference clone; cannot do interior mutability
             None => {
-                // unreachable since we are calling `check_state_is_initialized` before this
-                return Err(JsValue::from_str("Network state is not initialized"));
+                let err = JsValue::from_str(&format!(
+                    "L8 network state for {} is not initialized. Please call `await layer8.initialize_tunnel(..)` first.",
+                    backend_base_url
+                ));
+
+                return Err(err);
             }
         };
 
@@ -414,9 +404,7 @@ pub async fn fetch(
     })?;
 
     let req_object = L8RequestObject::new(backend_url, resource, options).await?;
-    let resp = req_object
-        .send(&network_state.client, &network_state.keychain)
-        .await?;
+    let resp = req_object.l8_send(&network_state).await?;
     Ok(resp)
 }
 
