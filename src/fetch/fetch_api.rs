@@ -1,13 +1,13 @@
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::{collections::HashMap, str::FromStr};
 
 use ntor::common::NTorParty;
-use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
 use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 
+use crate::compression::compress_data;
 use crate::ntor::WasmEncryptedMessage;
 
 use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
@@ -207,9 +207,13 @@ impl L8RequestObject {
     }
 
     pub async fn l8_send(self, network_state: &NetworkState) -> Result<web_sys::Response, JsValue> {
-        let data = serde_json::to_vec(&self).expect_throw(
+        let mut data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
+
+        if let Some(val) = &network_state.compression {
+            data = compress_data(val, &data);
+        }
 
         let msg = {
             let (nonce, encrypted) = network_state
@@ -241,6 +245,10 @@ impl L8RequestObject {
 
         if self.body.is_empty() {
             req_builder = req_builder.header("x-empty-body", "true");
+        }
+
+        if let Some(val) = &network_state.compression {
+            req_builder = req_builder.header("x-compression", val.as_str());
         }
 
         let response = req_builder
@@ -309,72 +317,6 @@ impl L8RequestObject {
             }
         }
     }
-
-    /// Sends the request parts using the provided reqwest client. Not as a serialized object, but the parts of the request
-    /// destructured into method, url, body, headers and params.
-    #[deprecated = "Use `L8RequestObject::send` instead that encrypts the data and sends to the proxy server."]
-    async fn send_request_parts(
-        self,
-        client: reqwest::Client,
-    ) -> Result<web_sys::Response, JsValue> {
-        let method = Method::from_str(&self.method)
-            .map_err(|e| JsValue::from_str(&format!("Invalid HTTP method: {}", e)))?;
-        let mut req_builder = client.request(method, self.uri);
-
-        // set the body if it exists
-        req_builder = req_builder.body(self.body);
-
-        // set the headers if they exist
-        if !self.headers.is_empty() {
-            for (header_name, header_value) in &self.headers {
-                req_builder = req_builder.header(header_name, serde_json::to_string(header_value).expect_throw(
-                        "we expect the header value to be serializable as a JSON string at compile time",
-                    ));
-            }
-        }
-
-        // set the no-cors mode if it exists
-        if let Some(mode) = self.mode {
-            if mode as usize == Mode::NoCors as usize {
-                req_builder = req_builder.fetch_mode_no_cors();
-            }
-        }
-
-        let resp_result = req_builder.send().await;
-
-        let resp = match resp_result {
-            Ok(response) => response,
-            Err(err) => {
-                if let Some(abort_signal) = &self.signal {
-                    // if there was an abort signal, we log the error add return that instead
-                    console::warn_1(
-                        &format!("Request failed with error: {}", err.to_string()).into(),
-                    );
-
-                    if abort_signal.aborted() {
-                        console::warn_1(&"Request was aborted".into());
-                        return Err(format!(
-                            "Request was aborted, reason: {}",
-                            abort_signal
-                                .reason()
-                                .as_string()
-                                .unwrap_or("Unknown reason".to_string())
-                        )
-                        .into());
-                    }
-                }
-
-                // If the request fails, we throw an error with the details.
-                return Err(JsValue::from_str(&format!(
-                    "Failed to send request: {}",
-                    err.to_string()
-                )));
-            }
-        };
-
-        // Constructing a web_sys::Response from the reqwest::Response
-        Ok(construct_js_response(resp).await)
-    }
 }
 
 /// This API is expected to be a 1:1 mapping of the Fetch API.
@@ -388,7 +330,7 @@ pub async fn fetch(
 ) -> Result<web_sys::Response, JsValue> {
     let backend_url = retrieve_resource_url(&resource)?;
     let backend_base_url = base_url(&backend_url)?;
-    let network_state = NETWORK_STATE.with_borrow(|cache| {        
+    let network_state = NETWORK_STATE.with_borrow(|cache| {
         let state = match cache.get(&backend_base_url) {
             Some(state) => Arc::clone(state), // This is a reference clone; cannot do interior mutability
             None => {
@@ -407,52 +349,6 @@ pub async fn fetch(
     let req_object = L8RequestObject::new(backend_url, resource, options).await?;
     let resp = req_object.l8_send(&network_state).await?;
     Ok(resp)
-}
-
-async fn construct_js_response(resp: reqwest::Response) -> web_sys::Response {
-    let resp_init = ResponseInit::new();
-    {
-        // status
-        resp_init.set_status(resp.status().as_u16());
-
-        // status text
-        resp_init.set_status_text(resp.status().canonical_reason().unwrap_or("OK"));
-
-        // headers
-        let js_headers =
-            web_sys::Headers::new().expect_throw("Failed to create a new Headers object");
-        for (key, value) in resp.headers().iter() {
-            js_headers
-                .append(
-                    key.as_str(),
-                    value
-                        .to_str()
-                        .expect_throw("Expected header value to be a valid UTF-8 string"),
-                )
-                .expect_throw("Failed to append header to Headers object");
-        }
-
-        // logging headers
-        console::log_1(&format!("Response Headers: {:?}", resp.headers()).into());
-
-        resp_init.set_headers(&js_headers);
-    }
-
-    let body = resp
-        .bytes()
-        .await
-        .expect_throw("Failed to read response body as bytes");
-    let array = js_sys::Uint8Array::new_with_length(body.len() as u32);
-    array.copy_from(&body);
-    match web_sys::Response::new_with_opt_js_u8_array_and_init(Some(&array), &resp_init) {
-        Ok(response) => response,
-        Err(err) => {
-            throw_str(&format!(
-                "Failed to construct JS Response: {:?}",
-                err.as_string()
-            ));
-        }
-    }
 }
 
 // returns the URL of the resource to be fetched
