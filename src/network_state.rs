@@ -1,8 +1,11 @@
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, str::FromStr, sync::Arc};
 
 use wasm_bindgen::prelude::*;
 
-use crate::http_request::{InitTunnelResult, init_tunnel};
+use crate::{
+    compression::CompressorVariant,
+    http_request::{InitTunnelResult, init_tunnel},
+};
 
 thread_local! {
     /// This is the cache for all the InitTunnelResult present. It is the single source of truth for the state of the system.
@@ -16,20 +19,41 @@ pub(crate) struct NetworkState {
     pub http_client: reqwest::Client,
     pub init_tunnel_result: InitTunnelResult,
     pub forward_proxy_url: String,
+    pub compression: Option<CompressorVariant>,
     pub _dev_flag: Option<bool>,
 }
 
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct ServiceProvider {
-    url: String,
-    _options: Option<js_sys::Object>, // for now, options is just any object including empty
+    pub url: String,
+    pub options: Option<ServiceProviderOptions>,
 }
 
 #[wasm_bindgen]
 impl ServiceProvider {
-    pub fn new(url: String, _options: Option<js_sys::Object>) -> Self {
-        ServiceProvider { url, _options }
+    pub fn new(url: String, options: Option<ServiceProviderOptions>) -> Self {
+        ServiceProvider { url, options }
+    }
+}
+
+/// This provides options for the service provider, such as compression settings.
+///
+/// When adding more options fields, ensure to use `Option<T>` to allow for backward compatibility.
+#[derive(Clone)]
+#[wasm_bindgen(getter_with_clone)]
+pub struct ServiceProviderOptions {
+    /// If no compression is specified, no compression will be used by default.
+    pub compression: Option<String>, // e.g., "gzip", "zlib"
+}
+
+#[wasm_bindgen]
+impl ServiceProviderOptions {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        ServiceProviderOptions {
+            compression: None, // Default to no compression
+        }
     }
 }
 
@@ -37,7 +61,7 @@ impl ServiceProvider {
 /// It checks if the provider already has an initialized tunnel, if not it initializes a new tunnel
 /// and stores the result.
 ///
-/// Make sure this call is blocking (**is being awaited**) before making any requests to the service providers.,
+/// IMPORTANT: Make sure this call is blocking (**is being awaited**) before making any requests to the service providers.,
 #[wasm_bindgen(js_name = "initEncryptedTunnel")]
 pub async fn init_encrypted_tunnel(
     forward_proxy_url: String,
@@ -57,9 +81,15 @@ pub async fn init_encrypted_tunnel(
         ))
         .await?;
 
+        let compression = service_provider
+            .options
+            .and_then(|opts| opts.compression)
+            .and_then(|c| CompressorVariant::from_str(c.as_str()).ok());
+
         let state = NetworkState {
             http_client: reqwest::Client::new(),
             init_tunnel_result,
+            compression,
             forward_proxy_url: forward_proxy_url.clone(),
             _dev_flag,
         };
