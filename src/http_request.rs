@@ -144,7 +144,7 @@ async fn http_post(
     let encrypted_request = match ntor_result.client.wasm_encrypt(wrapped_request_bytes) {
         Ok(encrypted) => encrypted,
         Err(e) => {
-            console::error_1(&format!("Encryption error: {}", e.to_string()).into());
+            console::error_1(&format!("Encryption error: {}", e).into());
             return Err(e.into());
         }
     };
@@ -200,7 +200,7 @@ async fn http_post(
                 })?
         }
         Err(e) => {
-            console::error_1(&format!("Decryption error: {}", e.to_string()).into());
+            console::error_1(&format!("Decryption error: {}", e).into());
             return Err(e.into());
         }
     };
