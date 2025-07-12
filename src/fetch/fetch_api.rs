@@ -11,7 +11,7 @@ use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 use crate::ntor::WasmEncryptedMessage;
 
 use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
-use crate::network_state::{NETWORK_STATE, NetworkState, base_url};
+use crate::network_state::{NETWORK_STATE, NetworkReadyState, NetworkState, base_url};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -388,6 +388,32 @@ pub async fn fetch(
 ) -> Result<web_sys::Response, JsValue> {
     let backend_url = retrieve_resource_url(&resource)?;
     let backend_base_url = base_url(&backend_url)?;
+
+    // make sure that the network state is in a ready state
+    loop {
+        match NetworkReadyState::ready_state(&backend_base_url)? {
+            NetworkReadyState::CONNECTING => {
+                console::warn_1(
+                    &format!(
+                        "Network is still connecting for {}. Please wait...",
+                        backend_base_url
+                    )
+                    .into(),
+                );
+                continue; // Retry the check
+            }
+            NetworkReadyState::OPEN => {
+                break;
+            }
+            NetworkReadyState::CLOSED => {
+                return Err(JsValue::from_str(&format!(
+                    "Network is not ready for {}. Please call `await layer8.initialize_tunnel(..)` first.",
+                    backend_base_url
+                )));
+            }
+        }
+    }
+
     let network_state = NETWORK_STATE.with_borrow(|cache| {        
         let state = match cache.get(&backend_base_url) {
             Some(state) => Arc::clone(state), // This is a reference clone; cannot do interior mutability
