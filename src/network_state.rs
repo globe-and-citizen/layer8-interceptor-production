@@ -74,7 +74,7 @@ pub fn init_encrypted_tunnel(
         let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
         let init_event = InitEventQueue {
             forward_proxy_url: forward_proxy_url.clone(),
-            _dev_flag: _dev_flag.clone(),
+            _dev_flag: _dev_flag,
             init_event: Box::pin(init_tunnel(backend_url)),
         };
 
@@ -133,7 +133,7 @@ impl NetworkReadyState {
                                     http_client: reqwest::Client::new(),
                                     init_tunnel_result: val.unwrap(),
                                     forward_proxy_url: fut.forward_proxy_url.clone(),
-                                    _dev_flag: fut._dev_flag.clone(),
+                                    _dev_flag: fut._dev_flag,
                                 };
 
                                 NETWORK_STATE.with_borrow_mut(|cache| {

@@ -100,8 +100,7 @@ impl L8RequestObject {
             if let Some(readable_stream) = req.body() {
                 req_wrapper.body = readable_stream_to_bytes(readable_stream)
                     .await
-                    .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?
-                    .into();
+                    .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?;
             };
 
             req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
@@ -256,9 +255,10 @@ impl L8RequestObject {
             )));
         }
 
-        let body = &response.bytes().await.map_err(|e| {
-            JsValue::from_str(&format!("Failed to read response body: {}", e.to_string()))
-        })?;
+        let body = &response
+            .bytes()
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to read response body: {}", e)))?;
 
         let encrypted_data =
             serde_json::from_slice::<WasmEncryptedMessage>(&body).map_err(|e| {
@@ -348,7 +348,7 @@ impl L8RequestObject {
                 if let Some(abort_signal) = &self.signal {
                     // if there was an abort signal, we log the error add return that instead
                     console::warn_1(
-                        &format!("Request failed with error: {}", err.to_string()).into(),
+                        &format!("Request failed with error: {}", err).into(),
                     );
 
                     if abort_signal.aborted() {

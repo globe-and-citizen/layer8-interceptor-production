@@ -1,4 +1,4 @@
-use wasm_bindgen::UnwrapThrowExt;
+use wasm_bindgen::{JsValue, UnwrapThrowExt};
 use web_sys::{ReferrerPolicy, RequestMode};
 
 use crate::fetch::fetch_api::{L8RequestObject, Mode};
@@ -43,10 +43,9 @@ pub fn add_properties_to_request(
             .unwrap_or(false); // false — The request is not a history navigation.
 
     // keepalive
-    js_sys::Reflect::get(&options, &"keepalive".into())
-        .ok()
-        .and_then(|val| val.as_bool())
-        .map(|keep_alive| req_wrapper.keep_alive = Some(keep_alive));
+    _ = js_sys::Reflect::get(&options, &"keepalive".into())
+        .and_then(|val| val.as_bool().ok_or(JsValue::NULL))
+        .inspect(|v| req_wrapper.keep_alive = Some(*v));
 
     // mode
     req_wrapper.mode = match options.get_mode() {
@@ -58,12 +57,10 @@ pub fn add_properties_to_request(
     };
 
     // redirect
-    js_sys::Reflect::get(&options, &"redirect".into())
-        .ok()
-        .map(|v| {
-            let val = v.as_string().unwrap_or_else(|| "follow".to_string());
-            req_wrapper.redirect = Some(val);
-        });
+    _ = js_sys::Reflect::get(&options, &"redirect".into()).inspect(|v| {
+        let val = v.as_string().unwrap_or_else(|| "follow".to_string());
+        req_wrapper.redirect = Some(val);
+    });
 
     // referrer policy
     let mut referrer_policy = "";
