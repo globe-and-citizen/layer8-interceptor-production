@@ -377,6 +377,17 @@ impl L8RequestObject {
     }
 }
 
+pub async fn sleep(delay: i32) {
+    let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {
+        _ = web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay);
+    };
+
+    let p = js_sys::Promise::new(&mut cb);
+    wasm_bindgen_futures::JsFuture::from(p).await.unwrap();
+}
+
 /// This API is expected to be a 1:1 mapping of the Fetch API.
 /// Arguments:
 /// - `resource`: The resource to fetch, which can be a string, a URL object or a Request object.
@@ -400,7 +411,8 @@ pub async fn fetch(
                     )
                     .into(),
                 );
-                continue; // Retry the check
+                sleep(100).await; // Wait for 100 milliseconds before retrying
+                continue;
             }
             NetworkReadyState::OPEN => {
                 break;
