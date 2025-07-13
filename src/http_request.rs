@@ -222,7 +222,7 @@ async fn http_post(
     return Ok(be_response);
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct InitTunnelResult {
     pub(crate) client: ntor::client::NTorClient,
