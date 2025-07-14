@@ -11,10 +11,10 @@ thread_local! {
     ///
     /// It maps a provider name (e.g., "https://provider.com") to its corresponding `NetworkState`.
     pub(crate) static NETWORK_STATE: RefCell<HashMap<String, Arc<NetworkState>>> = RefCell::new(HashMap::new());
-    static INIT_EVENT_QUEUE: RefCell<HashMap<String, InitEventQueue>>= RefCell::new(HashMap::new());
+    static INIT_EVENT_QUEUE: RefCell<HashMap<String, InitEventItem>>= RefCell::new(HashMap::new());
 }
 
-/// This event queue is used to store the events that are waiting to be processed.
+/// This event queue item is used to store the events that are waiting to be processed.
 /// Design:
 /// 1. An initialization call is queued in the event queue. This allows it to be polled later to make sure the tunnel initialization happened or errored out.
 /// 2. Any calls to the `fetch` API will first check if the tunnel is initialized.
@@ -23,7 +23,7 @@ thread_local! {
 ///    - If the initialization call is done, the fetch call is made.
 ///    - If the initialization call is not done, the fetch call waits and retries to poll (after x duration?) until the initialization call is done.
 /// 3. If the initialization call failed in INIT_EVENT_QUEUE, the fetch call will return an error.
-struct InitEventQueue {
+struct InitEventItem {
     init_event: Pin<Box<dyn Future<Output = Result<InitTunnelResult, JsValue>> + 'static>>,
     forward_proxy_url: String,
     _dev_flag: Option<bool>,
@@ -72,7 +72,7 @@ pub fn init_encrypted_tunnel(
         }
 
         let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
-        let init_event = InitEventQueue {
+        let init_event = InitEventItem {
             forward_proxy_url: forward_proxy_url.clone(),
             _dev_flag: _dev_flag,
             init_event: Box::pin(init_tunnel(backend_url)),
