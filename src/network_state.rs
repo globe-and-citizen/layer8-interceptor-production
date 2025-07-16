@@ -67,26 +67,45 @@ pub fn init_encrypted_tunnel(
 ) -> Result<(), JsValue> {
     for service_provider in service_providers {
         let base_url = base_url(&service_provider.url)?;
-
-        // skip if already initialized, reinitialization happens internally in l8_send()
-        match NetworkReadyState::ready_state(&base_url)? {
-            NetworkReadyState::OPEN(..) | NetworkReadyState::CONNECTING(..) => {
-                continue;
-            }
-            _ => {}
-        }
-
-        let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
-        let init_event = InitEventItem {
-            forward_proxy_url: forward_proxy_url.clone(),
-            version: 1,
-            _dev_flag: _dev_flag,
-            init_event: Box::pin(init_tunnel(backend_url)),
-        };
-
-        INIT_EVENT_QUEUE.with_borrow_mut(|queue| queue.insert(base_url.clone(), init_event));
+        schedule_init_event(&base_url, 1, forward_proxy_url.clone(), _dev_flag.clone())?;
     }
 
+    Ok(())
+}
+
+pub(crate) fn schedule_init_event(
+    base_url: &str,
+    expected_next_version: Version,
+    forward_proxy_url: String,
+    _dev_flag: Option<bool>,
+) -> Result<(), JsValue> {
+    // version is already connecting or connected, return early
+    let current_version = NetworkReadyState::ready_state(base_url)?.version();
+    if current_version == expected_next_version || current_version > expected_next_version {
+        return Ok(());
+    }
+
+    // let (forward_proxy_url, _dev_flag) = NETWORK_STATE.with_borrow(|cache| {
+    //     cache
+    //         .get(base_url)
+    //         .map(|network| (network.forward_proxy_url.clone(), network._dev_flag))
+    //         .unwrap_or_else(|| {
+    //             console::error_1(
+    //                 &format!("No network state found for base URL: {}", base_url).into(),
+    //             );
+    //             (String::new(), None)
+    //         })
+    // });
+
+    let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
+    let init_event = InitEventItem {
+        forward_proxy_url,
+        version: current_version + 1,
+        _dev_flag,
+        init_event: Box::pin(init_tunnel(backend_url)),
+    };
+
+    INIT_EVENT_QUEUE.with_borrow_mut(|queue| queue.insert(base_url.to_string(), init_event));
     Ok(())
 }
 
@@ -125,15 +144,9 @@ impl NetworkReadyState {
         let init_queue_item: Option<Result<NetworkReadyState, JsValue>> = INIT_EVENT_QUEUE
             .with_borrow_mut(|queue| match queue.get_mut(base_url) {
                 Some(fut) => pool_op(base_url, fut),
-                None => {
-                    console::log_1(
-                        &format!("Items found in the INIT_EVENT_QUEUE: {:?}", queue.keys()).into(),
-                    );
-                    None
-                }
+                None => None,
             });
 
-        // push all possible states from the INIT_EVENT_QUEUE
         match init_queue_item {
             Some(val) => {
                 let state = val?;
@@ -149,7 +162,7 @@ impl NetworkReadyState {
                 // If the base URL is not in the cache or event queue, it means it was never initialized.
                 console::warn_1(
                     &format!(
-                        "No initialization event found for base URL: {}. Assuming it is closed.",
+                        "No init event found for URL: {}. Assuming it is already open.",
                         base_url
                     )
                     .into(),
@@ -168,13 +181,7 @@ impl NetworkReadyState {
             .cloned()
             .unwrap_or(NetworkReadyState::CLOSED);
 
-        console::log_1(
-            &format!(
-                "versions found for base URL: {}. Returning the latest version: {:?}",
-                base_url, latest
-            )
-            .into(),
-        );
+        console::log_1(&format!("URL: {}. Network state version: {:?}", base_url, latest).into());
 
         Ok(latest)
     }
