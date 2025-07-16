@@ -205,7 +205,14 @@ impl L8RequestObject {
         Ok(req_wrapper)
     }
 
-    pub async fn l8_send(self, network_state: &NetworkState) -> Result<web_sys::Response, JsValue> {
+    /// Sends the request using the Layer8 network state.
+    /// This method can recurse only once to retry sending the request if it fails.
+    /// If the request fails again, it will return an error.
+    pub async fn l8_send(
+        self,
+        network_state: &NetworkState,
+        recurse_attempt: usize,
+    ) -> Result<web_sys::Response, JsValue> {
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
@@ -247,12 +254,16 @@ impl L8RequestObject {
             .await
             .map_err(|e| JsValue::from_str(&format!("Failed to send request: {}", e)))?;
 
-        // Just checking for an ok status
-        if response.status() != reqwest::StatusCode::OK {
-            return Err(JsValue::from_str(&format!(
-                "Request failed with status: {}",
-                response.status()
-            )));
+        
+        // status >= 400
+        if response.status() >= reqwest::StatusCode::BAD_REQUEST {
+            // we should not call l8_send more than once, give up if error persisted
+            if recurse_attempt > 0 {
+                return Err(JsValue::from_str(&format!(
+                    "Request failed after 1 attempt with status: {}",
+                    response.status()
+                )));
+            }
         }
 
         let body = &response
@@ -310,6 +321,16 @@ impl L8RequestObject {
         }
     }
 
+    // async fn reinitialize_tunnel(base_url: &str)-> Result<(), JsValue>{
+    //    let network_state = NETWORK_STATE.with_borrow(|cache|{
+    //      let network =  cache.get(base_url);
+          
+    //    });
+        
+
+    //    todo!()
+    // }
+
     /// Sends the request parts using the provided reqwest client. Not as a serialized object, but the parts of the request
     /// destructured into method, url, body, headers and params.
     #[deprecated = "Use `L8RequestObject::send` instead that encrypts the data and sends to the proxy server."]
@@ -347,9 +368,7 @@ impl L8RequestObject {
             Err(err) => {
                 if let Some(abort_signal) = &self.signal {
                     // if there was an abort signal, we log the error add return that instead
-                    console::warn_1(
-                        &format!("Request failed with error: {}", err).into(),
-                    );
+                    console::warn_1(&format!("Request failed with error: {}", err).into());
 
                     if abort_signal.aborted() {
                         console::warn_1(&"Request was aborted".into());
@@ -403,7 +422,7 @@ pub async fn fetch(
     // make sure that the network state is in a ready state
     loop {
         match NetworkReadyState::ready_state(&backend_base_url)? {
-            NetworkReadyState::CONNECTING => {
+            NetworkReadyState::CONNECTING(..) => {
                 console::warn_1(
                     &format!(
                         "Network is still connecting for {}. Please wait...",
@@ -414,7 +433,7 @@ pub async fn fetch(
                 sleep(100).await; // Wait for 100 milliseconds before retrying
                 continue;
             }
-            NetworkReadyState::OPEN => {
+            NetworkReadyState::OPEN(..) => {
                 break;
             }
             NetworkReadyState::CLOSED => {
@@ -443,7 +462,7 @@ pub async fn fetch(
     })?;
 
     let req_object = L8RequestObject::new(backend_url, resource, options).await?;
-    let resp = req_object.l8_send(&network_state).await?;
+    let resp = req_object.l8_send(&network_state, 0).await?;
     Ok(resp)
 }
 

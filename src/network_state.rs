@@ -26,14 +26,19 @@ thread_local! {
 struct InitEventItem {
     init_event: Pin<Box<dyn Future<Output = Result<InitTunnelResult, JsValue>> + 'static>>,
     forward_proxy_url: String,
+    version: Version,
     _dev_flag: Option<bool>,
 }
+
+// This is an alias value to track the version of the tunnel. It is incremented every time a new tunnel is initialized.
+pub(crate) type Version = u16;
 
 #[derive(Debug)]
 pub(crate) struct NetworkState {
     pub http_client: reqwest::Client,
     pub init_tunnel_result: InitTunnelResult,
     pub forward_proxy_url: String,
+    pub version: Version,
     pub _dev_flag: Option<bool>,
 }
 
@@ -63,9 +68,9 @@ pub fn init_encrypted_tunnel(
     for service_provider in service_providers {
         let base_url = base_url(&service_provider.url)?;
 
-        // skip if already initialized
+        // skip if already initialized, reinitialization happens internally in l8_send()
         match NetworkReadyState::ready_state(&base_url)? {
-            NetworkReadyState::OPEN | NetworkReadyState::CONNECTING => {
+            NetworkReadyState::OPEN(..) | NetworkReadyState::CONNECTING(..) => {
                 continue;
             }
             _ => {}
@@ -74,6 +79,7 @@ pub fn init_encrypted_tunnel(
         let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
         let init_event = InitEventItem {
             forward_proxy_url: forward_proxy_url.clone(),
+            version: 1,
             _dev_flag: _dev_flag,
             init_event: Box::pin(init_tunnel(backend_url)),
         };
@@ -98,76 +104,27 @@ pub fn base_url(url: &str) -> Result<String, JsValue> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum NetworkReadyState {
-    CONNECTING,
-    OPEN,
+pub(crate) enum NetworkReadyState {
+    CONNECTING(Version),
+    OPEN(Version),
     CLOSED,
 }
 
 impl NetworkReadyState {
+    /// This function checks the current state of the network for the given base URL. It will only return the state of the latest version
+    /// if there are multiple versions of the network state.
     pub fn ready_state(base_url: &str) -> Result<NetworkReadyState, JsValue> {
-        if NETWORK_STATE.with_borrow(|cache| cache.get(base_url).is_some()) {
-            return Ok(NetworkReadyState::OPEN);
+        let mut versions = Vec::new();
+        if let Some(version) =
+            NETWORK_STATE.with_borrow(|cache| cache.get(base_url).map(|val| val.version.clone()))
+        {
+            versions.push(NetworkReadyState::OPEN(version));
         }
 
-        // confirm if we have an entry in the InitEventQueue, poll if it is ready if not return CONNECTING
-        let state: Option<Result<NetworkReadyState, JsValue>> =
-            INIT_EVENT_QUEUE.with_borrow_mut(|queue| match queue.get_mut(base_url) {
-                Some(fut) => {
-                    let noop_waker = futures::task::noop_waker_ref();
-                    let mut ctx = futures::task::Context::from_waker(&noop_waker);
-
-                    match fut.init_event.poll_unpin(&mut ctx) {
-                        Poll::Ready(val) => match val {
-                            Ok(_) => {
-                                console::log_1(
-                                    &format!(
-                                        "Tunnel initialized successfully for base URL: {}",
-                                        base_url
-                                    )
-                                    .into(),
-                                );
-
-                                // add the result to the cache
-                                let network_state = NetworkState {
-                                    http_client: reqwest::Client::new(),
-                                    init_tunnel_result: val.unwrap(),
-                                    forward_proxy_url: fut.forward_proxy_url.clone(),
-                                    _dev_flag: fut._dev_flag,
-                                };
-
-                                NETWORK_STATE.with_borrow_mut(|cache| {
-                                    cache.insert(base_url.to_string(), Arc::new(network_state));
-                                });
-
-                                Some(Ok(NetworkReadyState::OPEN))
-                            }
-
-                            Err(err) => {
-                                console::error_1(
-                                    &format!(
-                                        "Error initializing tunnel for base URL: {}. Error: {:?}",
-                                        base_url, err
-                                    )
-                                    .into(),
-                                );
-                                Some(Err(err))
-                            }
-                        },
-
-                        Poll::Pending => {
-                            console::log_1(
-                                &format!(
-                                    "Network is still initializing for base URL: {}",
-                                    base_url
-                                )
-                                .into(),
-                            );
-
-                            Some(Ok(NetworkReadyState::CONNECTING))
-                        }
-                    }
-                }
+        // check if there's a version in the INIT_EVENT_QUEUE
+        let init_queue_item: Option<Result<NetworkReadyState, JsValue>> = INIT_EVENT_QUEUE
+            .with_borrow_mut(|queue| match queue.get_mut(base_url) {
+                Some(fut) => pool_op(base_url, fut),
                 None => {
                     console::log_1(
                         &format!("Items found in the INIT_EVENT_QUEUE: {:?}", queue.keys()).into(),
@@ -176,16 +133,17 @@ impl NetworkReadyState {
                 }
             });
 
-        match state {
+        // push all possible states from the INIT_EVENT_QUEUE
+        match init_queue_item {
             Some(val) => {
                 let state = val?;
-                if state == NetworkReadyState::OPEN {
+                if let NetworkReadyState::OPEN(..) = state {
                     INIT_EVENT_QUEUE.with_borrow_mut(|queue| {
                         queue.remove(base_url);
                     });
                 }
 
-                Ok(state)
+                versions.push(state);
             }
             None => {
                 // If the base URL is not in the cache or event queue, it means it was never initialized.
@@ -197,8 +155,85 @@ impl NetworkReadyState {
                     .into(),
                 );
 
-                Ok(NetworkReadyState::CLOSED)
+                if versions.is_empty() {
+                    return Ok(NetworkReadyState::CLOSED);
+                }
             }
+        }
+
+        versions.sort_by(|a, b| a.version().cmp(&b.version()));
+
+        let latest = versions
+            .last()
+            .cloned()
+            .unwrap_or(NetworkReadyState::CLOSED);
+
+        console::log_1(
+            &format!(
+                "versions found for base URL: {}. Returning the latest version: {:?}",
+                base_url, latest
+            )
+            .into(),
+        );
+
+        Ok(latest)
+    }
+
+    pub fn version(&self) -> Version {
+        match self {
+            NetworkReadyState::CONNECTING(ver) => *ver,
+            NetworkReadyState::OPEN(ver) => *ver,
+            NetworkReadyState::CLOSED => 0, // No version for closed state
+        }
+    }
+}
+
+// This function polls the future returning the result of the tunnel initialization if it is ready.
+fn pool_op(base_url: &str, fut: &mut InitEventItem) -> Option<Result<NetworkReadyState, JsValue>> {
+    let noop_waker = futures::task::noop_waker_ref();
+    let mut ctx = futures::task::Context::from_waker(&noop_waker);
+
+    match fut.init_event.poll_unpin(&mut ctx) {
+        Poll::Ready(val) => match val {
+            Ok(init_tunnel_result) => {
+                console::log_1(
+                    &format!("Tunnel initialized successfully for base URL: {}", base_url).into(),
+                );
+
+                // add the result to the cache
+                let network_state = NetworkState {
+                    http_client: reqwest::Client::new(),
+                    init_tunnel_result,
+                    forward_proxy_url: fut.forward_proxy_url.clone(),
+                    version: fut.version,
+                    _dev_flag: fut._dev_flag,
+                };
+
+                NETWORK_STATE.with_borrow_mut(|cache| {
+                    cache.insert(base_url.to_string(), Arc::new(network_state));
+                });
+
+                Some(Ok(NetworkReadyState::OPEN(fut.version)))
+            }
+
+            Err(err) => {
+                console::error_1(
+                    &format!(
+                        "Error initializing tunnel for base URL: {}. Error: {:?}",
+                        base_url, err
+                    )
+                    .into(),
+                );
+                Some(Err(err))
+            }
+        },
+
+        Poll::Pending => {
+            console::log_1(
+                &format!("Network is still initializing for base URL: {}", base_url).into(),
+            );
+
+            Some(Ok(NetworkReadyState::CONNECTING(fut.version)))
         }
     }
 }
