@@ -149,7 +149,18 @@ impl NetworkReadyState {
 
         match init_queue_item {
             Some(val) => {
-                let state = val?;
+                let state = match val {
+                    Ok(val) => val,
+                    Err(err) => {
+                        // We failed to initialize, we;re popping this item from the queue
+                        INIT_EVENT_QUEUE.with_borrow_mut(|queue| {
+                            queue.remove(base_url);
+                        });
+
+                        return Err(err);
+                    }
+                };
+
                 if let NetworkReadyState::OPEN(..) = state {
                     INIT_EVENT_QUEUE.with_borrow_mut(|queue| {
                         queue.remove(base_url);
