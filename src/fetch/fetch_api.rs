@@ -279,7 +279,7 @@ impl L8RequestObject {
                     // schedule an init event for the next version
                     schedule_init_event(
                         &base_url,
-                        new_version.clone(),
+                        new_version,
                         network_state.forward_proxy_url.clone(),
                         network_state._dev_flag.clone(),
                     )?;
@@ -289,7 +289,7 @@ impl L8RequestObject {
 
                 return Err(JsValue::from_str(&format!(
                     "Failed to send request: {}",
-                    err.to_string()
+                    err
                 )));
             }
         };
@@ -311,9 +311,9 @@ impl L8RequestObject {
                 // schedule an init event for the next version
                 schedule_init_event(
                     &base_url,
-                    new_version.clone(),
+                    new_version,
                     network_state.forward_proxy_url.clone(),
-                    network_state._dev_flag.clone(),
+                    network_state._dev_flag,
                 )?;
 
                 return Ok(NetworkResponse::Reinitialize(new_version));
@@ -441,7 +441,7 @@ impl L8RequestObject {
                 // If the request fails, we throw an error with the details.
                 return Err(JsValue::from_str(&format!(
                     "Failed to send request: {}",
-                    err.to_string()
+                    err
                 )));
             }
         };

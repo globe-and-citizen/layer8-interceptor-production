@@ -14,15 +14,15 @@ thread_local! {
     static INIT_EVENT_QUEUE: RefCell<HashMap<String, InitEventItem>>= RefCell::new(HashMap::new());
 }
 
-/// This event queue item is used to store the events that are waiting to be processed.
-/// Design:
-/// 1. An initialization call is queued in the event queue. This allows it to be polled later to make sure the tunnel initialization happened or errored out.
-/// 2. Any calls to the `fetch` API will first check if the tunnel is initialized.
-///    - If it is initialized in the NETWORK_STATE, the call is made.
-///    - If it is not initialized, the initialization call is polled in the INIT_EVENT_QUEUE to check if it is done.
-///    - If the initialization call is done, the fetch call is made.
-///    - If the initialization call is not done, the fetch call waits and retries to poll (after x duration?) until the initialization call is done.
-/// 3. If the initialization call failed in INIT_EVENT_QUEUE, the fetch call will return an error.
+// This event queue item is used to store the events that are waiting to be processed.
+// Design:
+// 1. An initialization call is queued in the event queue. This allows it to be polled later to make sure the tunnel initialization happened or errored out.
+// 2. Any calls to the `fetch` API will first check if the tunnel is initialized.
+//    - If it is initialized in the NETWORK_STATE, the call is made.
+//    - If it is not initialized, the initialization call is polled in the INIT_EVENT_QUEUE to check if it is done.
+//    - If the initialization call is done, the fetch call is made.
+//    - If the initialization call is not done, the fetch call waits and retries to poll (after x duration?) until the initialization call is done.
+// 3. If the initialization call failed in INIT_EVENT_QUEUE, the fetch call will return an error.
 struct InitEventItem {
     init_event: Pin<Box<dyn Future<Output = Result<InitTunnelResult, JsValue>> + 'static>>,
     forward_proxy_url: String,
@@ -67,7 +67,7 @@ pub fn init_encrypted_tunnel(
 ) -> Result<(), JsValue> {
     for service_provider in service_providers {
         let base_url = base_url(&service_provider.url)?;
-        schedule_init_event(&base_url, 1, forward_proxy_url.clone(), _dev_flag.clone())?;
+        schedule_init_event(&base_url, 1, forward_proxy_url.clone(), _dev_flag)?;
     }
 
     Ok(())
@@ -81,21 +81,9 @@ pub(crate) fn schedule_init_event(
 ) -> Result<(), JsValue> {
     // version is already connecting or connected, return early
     let current_version = NetworkReadyState::ready_state(base_url)?.version();
-    if current_version == expected_next_version || current_version > expected_next_version {
+    if current_version >= expected_next_version {
         return Ok(());
     }
-
-    // let (forward_proxy_url, _dev_flag) = NETWORK_STATE.with_borrow(|cache| {
-    //     cache
-    //         .get(base_url)
-    //         .map(|network| (network.forward_proxy_url.clone(), network._dev_flag))
-    //         .unwrap_or_else(|| {
-    //             console::error_1(
-    //                 &format!("No network state found for base URL: {}", base_url).into(),
-    //             );
-    //             (String::new(), None)
-    //         })
-    // });
 
     let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
     let init_event = InitEventItem {
@@ -135,7 +123,7 @@ impl NetworkReadyState {
     pub fn ready_state(base_url: &str) -> Result<NetworkReadyState, JsValue> {
         let mut versions = Vec::new();
         if let Some(version) =
-            NETWORK_STATE.with_borrow(|cache| cache.get(base_url).map(|val| val.version.clone()))
+            NETWORK_STATE.with_borrow(|cache| cache.get(base_url).map(|val| val.version))
         {
             versions.push(NetworkReadyState::OPEN(version));
         }
@@ -185,7 +173,7 @@ impl NetworkReadyState {
             }
         }
 
-        versions.sort_by(|a, b| a.version().cmp(&b.version()));
+        versions.sort_by_key(|a| a.version());
 
         let latest = versions
             .last()
