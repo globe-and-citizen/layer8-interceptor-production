@@ -155,8 +155,8 @@ async fn http_post(
         .post(format!("{}/proxy", host))
         .header("Content-Type", "application/json")
         .header("Access-Control-Allow-Headers", "Content-Length")
-        .header("int_rp_jwt", ntor_result.token1)
-        .header("int_fp_jwt", ntor_result.token2)
+        .header("int_rp_jwt", ntor_result.int_rp_jwt)
+        .header("int_fp_jwt", ntor_result.int_fp_jwt)
         .body(serde_json::to_string(&encrypted_request).unwrap_throw())
         .send()
         .await
@@ -227,8 +227,8 @@ async fn http_post(
 #[wasm_bindgen(getter_with_clone)]
 pub struct InitTunnelResult {
     pub(crate) client: NTorClient,
-    pub(crate) token1: String,
-    pub(crate) token2: String,
+    pub(crate) int_rp_jwt: String,
+    pub(crate) int_fp_jwt: String,
 }
 
 // #[wasm_bindgen]
@@ -305,8 +305,8 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
 
     let result = InitTunnelResult {
         client,
-        token1: response_body.int_rp_jwt,
-        token2: response_body.int_fp_jwt,
+        int_rp_jwt: response_body.int_rp_jwt,
+        int_fp_jwt: response_body.int_fp_jwt,
     };
 
     Ok(result)

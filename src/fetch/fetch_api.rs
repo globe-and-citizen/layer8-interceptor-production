@@ -232,8 +232,8 @@ impl L8RequestObject {
             .http_client
             .post(format!("{}/proxy", network_state.forward_proxy_url))
             .header("content-type", "application/json")
-            .header("int_rp_jwt", network_state.init_tunnel_result.token1.clone())
-            .header("int_fp_jwt", network_state.init_tunnel_result.token2.clone(),
+            .header("int_rp_jwt", network_state.init_tunnel_result.int_rp_jwt.clone())
+            .header("int_fp_jwt", network_state.init_tunnel_result.int_fp_jwt.clone(),
             )
             .body(msg);
 
