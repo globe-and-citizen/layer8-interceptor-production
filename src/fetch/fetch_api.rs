@@ -100,8 +100,7 @@ impl L8RequestObject {
             if let Some(readable_stream) = req.body() {
                 req_wrapper.body = readable_stream_to_bytes(readable_stream)
                     .await
-                    .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?
-                    .into();
+                    .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?;
             };
 
             req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
@@ -233,9 +232,8 @@ impl L8RequestObject {
             .http_client
             .post(format!("{}/proxy", network_state.forward_proxy_url))
             .header("content-type", "application/json")
-            .header(
-                "ntor-session-id",
-                network_state.init_tunnel_result.ntor_session_id.clone(),
+            .header("int_rp_jwt", network_state.init_tunnel_result.int_rp_jwt.clone())
+            .header("int_fp_jwt", network_state.init_tunnel_result.int_fp_jwt.clone(),
             )
             .body(msg);
 
@@ -257,7 +255,7 @@ impl L8RequestObject {
         }
 
         let body = &response.bytes().await.map_err(|e| {
-            JsValue::from_str(&format!("Failed to read response body: {}", e.to_string()))
+            JsValue::from_str(&format!("Failed to read response body: {}", e))
         })?;
 
         let encrypted_data =
@@ -348,7 +346,7 @@ impl L8RequestObject {
                 if let Some(abort_signal) = &self.signal {
                     // if there was an abort signal, we log the error add return that instead
                     console::warn_1(
-                        &format!("Request failed with error: {}", err.to_string()).into(),
+                        &format!("Request failed with error: {}", err).into(),
                     );
 
                     if abort_signal.aborted() {
@@ -367,7 +365,7 @@ impl L8RequestObject {
                 // If the request fails, we throw an error with the details.
                 return Err(JsValue::from_str(&format!(
                     "Failed to send request: {}",
-                    err.to_string()
+                    err
                 )));
             }
         };
@@ -388,7 +386,7 @@ pub async fn fetch(
 ) -> Result<web_sys::Response, JsValue> {
     let backend_url = retrieve_resource_url(&resource)?;
     let backend_base_url = base_url(&backend_url)?;
-    let network_state = NETWORK_STATE.with_borrow(|cache| {        
+    let network_state = NETWORK_STATE.with_borrow(|cache| {
         let state = match cache.get(&backend_base_url) {
             Some(state) => Arc::clone(state), // This is a reference clone; cannot do interior mutability
             None => {

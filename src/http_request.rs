@@ -144,7 +144,7 @@ async fn http_post(
     let encrypted_request = match ntor_result.client.wasm_encrypt(wrapped_request_bytes) {
         Ok(encrypted) => encrypted,
         Err(e) => {
-            console::error_1(&format!("Encryption error: {}", e.to_string()).into());
+            console::error_1(&format!("Encryption error: {}", e).into());
             return Err(e.into());
         }
     };
@@ -155,7 +155,8 @@ async fn http_post(
         .post(format!("{}/proxy", host))
         .header("Content-Type", "application/json")
         .header("Access-Control-Allow-Headers", "Content-Length")
-        .header("ntor-session-id", ntor_result.ntor_session_id)
+        .header("int_rp_jwt", ntor_result.int_rp_jwt)
+        .header("int_fp_jwt", ntor_result.int_fp_jwt)
         .body(serde_json::to_string(&encrypted_request).unwrap_throw())
         .send()
         .await
@@ -199,7 +200,7 @@ async fn http_post(
                 })?
         }
         Err(e) => {
-            console::error_1(&format!("Decryption error: {}", e.to_string()).into());
+            console::error_1(&format!("Decryption error: {}", e).into());
             return Err(e.into());
         }
     };
@@ -225,8 +226,9 @@ async fn http_post(
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct InitTunnelResult {
-    pub(crate) client: ntor::client::NTorClient,
-    pub(crate) ntor_session_id: String,
+    pub(crate) client: NTorClient,
+    pub(crate) int_rp_jwt: String,
+    pub(crate) int_fp_jwt: String,
 }
 
 // #[wasm_bindgen]
@@ -244,9 +246,13 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
     struct InitTunnelResponse {
         ephemeral_public_key: Vec<u8>,
         t_b_hash: Vec<u8>,
+        #[serde(rename = "jwt1")]
+        int_rp_jwt: String,
+        #[serde(rename = "jwt2")]
+        int_fp_jwt: String,
         server_id: String,
+        #[serde(rename = "public_key")]
         static_public_key: Vec<u8>,
-        session_id: String,
     }
 
     let request_body = InitTunnelRequest {
@@ -298,8 +304,9 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
     );
 
     let result = InitTunnelResult {
-        client: client,
-        ntor_session_id: response_body.session_id,
+        client,
+        int_rp_jwt: response_body.int_rp_jwt,
+        int_fp_jwt: response_body.int_fp_jwt,
     };
 
     Ok(result)

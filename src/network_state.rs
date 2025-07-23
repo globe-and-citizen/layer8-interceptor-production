@@ -11,7 +11,6 @@ thread_local! {
     pub(crate) static NETWORK_STATE: RefCell<HashMap<String, Arc<NetworkState>>> = RefCell::new(HashMap::new());
 }
 
-#[derive(Debug)]
 pub(crate) struct NetworkState {
     pub http_client: reqwest::Client,
     pub init_tunnel_result: InitTunnelResult,
