@@ -29,7 +29,6 @@ struct InitEventItem {
     _dev_flag: Option<bool>,
 }
 
-#[derive(Debug)]
 pub(crate) struct NetworkState {
     pub http_client: reqwest::Client,
     pub init_tunnel_result: InitTunnelResult,

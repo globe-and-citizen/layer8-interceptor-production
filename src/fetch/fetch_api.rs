@@ -232,9 +232,8 @@ impl L8RequestObject {
             .http_client
             .post(format!("{}/proxy", network_state.forward_proxy_url))
             .header("content-type", "application/json")
-            .header(
-                "ntor-session-id",
-                network_state.init_tunnel_result.ntor_session_id.clone(),
+            .header("int_rp_jwt", network_state.init_tunnel_result.int_rp_jwt.clone())
+            .header("int_fp_jwt", network_state.init_tunnel_result.int_fp_jwt.clone(),
             )
             .body(msg);
 
@@ -255,10 +254,9 @@ impl L8RequestObject {
             )));
         }
 
-        let body = &response
-            .bytes()
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to read response body: {}", e)))?;
+        let body = &response.bytes().await.map_err(|e| {
+            JsValue::from_str(&format!("Failed to read response body: {}", e))
+        })?;
 
         let encrypted_data =
             serde_json::from_slice::<WasmEncryptedMessage>(&body).map_err(|e| {
@@ -367,7 +365,7 @@ impl L8RequestObject {
                 // If the request fails, we throw an error with the details.
                 return Err(JsValue::from_str(&format!(
                     "Failed to send request: {}",
-                    err.to_string()
+                    err
                 )));
             }
         };
