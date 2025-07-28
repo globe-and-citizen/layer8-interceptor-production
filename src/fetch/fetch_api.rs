@@ -1,8 +1,7 @@
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::{collections::HashMap, str::FromStr};
 
 use ntor::common::NTorParty;
-use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
@@ -54,9 +53,9 @@ pub struct L8ResponseObject {
     pub body: Vec<u8>,
 
     /* Below fields are present but not used because ResponseInit does not support */
-    pub ok: bool,
-    pub url: String,
-    pub redirected: bool,
+    pub _ok: bool,
+    pub _url: String,
+    pub _redirected: bool,
     /* Other fields are ignored because rust and wasm do not support */
 }
 
@@ -252,8 +251,13 @@ impl L8RequestObject {
             .http_client
             .post(format!("{}/proxy", network_state.forward_proxy_url))
             .header("content-type", "application/json")
-            .header("int_rp_jwt", network_state.init_tunnel_result.int_rp_jwt.clone())
-            .header("int_fp_jwt", network_state.init_tunnel_result.int_fp_jwt.clone(),
+            .header(
+                "int_rp_jwt",
+                network_state.init_tunnel_result.int_rp_jwt.clone(),
+            )
+            .header(
+                "int_fp_jwt",
+                network_state.init_tunnel_result.int_fp_jwt.clone(),
             )
             .body(msg);
 
@@ -280,7 +284,7 @@ impl L8RequestObject {
                         &base_url,
                         new_version,
                         network_state.forward_proxy_url.clone(),
-                        network_state._dev_flag.clone(),
+                        network_state._dev_flag,
                     )?;
 
                     return Ok(NetworkResponse::Reinitialize(new_version));
@@ -330,9 +334,10 @@ impl L8RequestObject {
             ))));
         }
 
-        let body = &response.bytes().await.map_err(|e| {
-            JsValue::from_str(&format!("Failed to read response body: {}", e))
-        })?;
+        let body = &response
+            .bytes()
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Failed to read response body: {}", e)))?;
 
         let encrypted_data =
             serde_json::from_slice::<WasmEncryptedMessage>(&body).map_err(|e| {
@@ -382,70 +387,6 @@ impl L8RequestObject {
                 ));
             }
         }
-    }
-
-    /// Sends the request parts using the provided reqwest client. Not as a serialized object, but the parts of the request
-    /// destructured into method, url, body, headers and params.
-    #[deprecated = "Use `L8RequestObject::send` instead that encrypts the data and sends to the proxy server."]
-    async fn send_request_parts(
-        self,
-        client: reqwest::Client,
-    ) -> Result<web_sys::Response, JsValue> {
-        let method = Method::from_str(&self.method)
-            .map_err(|e| JsValue::from_str(&format!("Invalid HTTP method: {}", e)))?;
-        let mut req_builder = client.request(method, self.uri);
-
-        // set the body if it exists
-        req_builder = req_builder.body(self.body);
-
-        // set the headers if they exist
-        if !self.headers.is_empty() {
-            for (header_name, header_value) in &self.headers {
-                req_builder = req_builder.header(header_name, serde_json::to_string(header_value).expect_throw(
-                        "we expect the header value to be serializable as a JSON string at compile time",
-                    ));
-            }
-        }
-
-        // set the no-cors mode if it exists
-        if let Some(mode) = self.mode {
-            if mode as usize == Mode::NoCors as usize {
-                req_builder = req_builder.fetch_mode_no_cors();
-            }
-        }
-
-        let resp_result = req_builder.send().await;
-
-        let resp = match resp_result {
-            Ok(response) => response,
-            Err(err) => {
-                if let Some(abort_signal) = &self.signal {
-                    // if there was an abort signal, we log the error add return that instead
-                    console::warn_1(&format!("Request failed with error: {}", err).into());
-
-                    if abort_signal.aborted() {
-                        console::warn_1(&"Request was aborted".into());
-                        return Err(format!(
-                            "Request was aborted, reason: {}",
-                            abort_signal
-                                .reason()
-                                .as_string()
-                                .unwrap_or("Unknown reason".to_string())
-                        )
-                        .into());
-                    }
-                }
-
-                // If the request fails, we throw an error with the details.
-                return Err(JsValue::from_str(&format!(
-                    "Failed to send request: {}",
-                    err
-                )));
-            }
-        };
-
-        // Constructing a web_sys::Response from the reqwest::Response
-        Ok(construct_js_response(resp).await)
     }
 }
 
@@ -564,52 +505,6 @@ pub async fn fetch(
                 // update the network state
                 network_state = get_network_state()?;
             }
-        }
-    }
-}
-
-async fn construct_js_response(resp: reqwest::Response) -> web_sys::Response {
-    let resp_init = ResponseInit::new();
-    {
-        // status
-        resp_init.set_status(resp.status().as_u16());
-
-        // status text
-        resp_init.set_status_text(resp.status().canonical_reason().unwrap_or("OK"));
-
-        // headers
-        let js_headers =
-            web_sys::Headers::new().expect_throw("Failed to create a new Headers object");
-        for (key, value) in resp.headers().iter() {
-            js_headers
-                .append(
-                    key.as_str(),
-                    value
-                        .to_str()
-                        .expect_throw("Expected header value to be a valid UTF-8 string"),
-                )
-                .expect_throw("Failed to append header to Headers object");
-        }
-
-        // logging headers
-        console::log_1(&format!("Response Headers: {:?}", resp.headers()).into());
-
-        resp_init.set_headers(&js_headers);
-    }
-
-    let body = resp
-        .bytes()
-        .await
-        .expect_throw("Failed to read response body as bytes");
-    let array = js_sys::Uint8Array::new_with_length(body.len() as u32);
-    array.copy_from(&body);
-    match web_sys::Response::new_with_opt_js_u8_array_and_init(Some(&array), &resp_init) {
-        Ok(response) => response,
-        Err(err) => {
-            throw_str(&format!(
-                "Failed to construct JS Response: {:?}",
-                err.as_string()
-            ));
         }
     }
 }

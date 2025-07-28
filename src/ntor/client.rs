@@ -1,8 +1,7 @@
+use crate::ntor::WasmEncryptedMessage;
+use ntor::common::NTorParty;
 use wasm_bindgen::prelude::*;
 use web_sys::console;
-use ntor::common::NTorParty;
-use crate::ntor::WasmEncryptedMessage;
-
 
 /// Deprecated: The `ntor::client::NTorClient` was used directly, so this struct no logger needs to be exported.
 #[wasm_bindgen(getter_with_clone)]
@@ -16,7 +15,7 @@ impl WasmNTorClient {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmNTorClient {
         WasmNTorClient {
-            client: ntor::client::NTorClient::new()
+            client: ntor::client::NTorClient::new(),
         }
     }
 
@@ -32,7 +31,7 @@ impl WasmNTorClient {
                     data: encrypted,
                 })
             }
-            Err(err) => Err(JsError::new(err))
+            Err(err) => Err(JsError::new(err)),
         };
     }
 
@@ -44,7 +43,7 @@ impl WasmNTorClient {
                 console::debug_1(&format!("Decrypted data: {:?}", decrypted).into());
                 Ok(decrypted)
             }
-            Err(err) => Err(JsError::new(err))
+            Err(err) => Err(JsError::new(err)),
         };
     }
 
