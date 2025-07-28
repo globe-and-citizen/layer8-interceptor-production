@@ -63,7 +63,6 @@ jobs:
           profile: minimal
           toolchain: stable
           default: true
-          components: wasm-pack
       - uses: Swatinem/rust-cache@v1
       - name: Build with wasm-pack  
         run: |
