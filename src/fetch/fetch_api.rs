@@ -14,6 +14,7 @@ use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_prope
 use crate::network_state::{
     NETWORK_STATE, NetworkReadyState, NetworkState, Version, base_url, schedule_init_event,
 };
+use crate::utils;
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -450,17 +451,6 @@ impl L8RequestObject {
 }
 
 async fn network_state_is_ready(backend_base_url: &str) -> Result<(), JsValue> {
-    async fn sleep(delay: i32) {
-        let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {
-            _ = web_sys::window()
-                .unwrap()
-                .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay);
-        };
-
-        let p = js_sys::Promise::new(&mut cb);
-        wasm_bindgen_futures::JsFuture::from(p).await.unwrap();
-    }
-
     loop {
         match NetworkReadyState::ready_state(backend_base_url)? {
             NetworkReadyState::CONNECTING(..) => {
@@ -471,7 +461,7 @@ async fn network_state_is_ready(backend_base_url: &str) -> Result<(), JsValue> {
                     )
                     .into(),
                 );
-                sleep(100).await; // Wait for 100 milliseconds before retrying
+                utils::sleep(100).await; // Wait for 100 milliseconds before retrying
                 continue;
             }
             NetworkReadyState::OPEN(..) => {

@@ -14,34 +14,35 @@ document.getElementById("test-wasm").addEventListener("click", () => {
     let forward_proxy_url = 'http://localhost:6191';
     let backend_url = 'http://localhost:6193';
 
-    let providers = [ServiceProvider.new(backend_url)];
-    initEncryptedTunnel(forward_proxy_url, providers)
-        .then(() => {
-            console.log('Encrypted tunnel initialized successfully');
+    try {
+        let providers = [ServiceProvider.new(backend_url)];
 
-            interceptor_wasm.fetch(`${backend_url}/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(body)
-            })
-                .then(response => {
-                    console.log("fetch response:", response);
-                    if (response.ok) {
-                        response.json().then(data => {
-                            let token = data.token || data["token"] || data.get("token");
-                            console.log('token', token)
-                        });
-                    } else {
-                        alert(`An error occurred while logging in. ${response.status}`);
-                    }
-                }).catch(err => {
-                console.error("Fetch error:", err);
-            });
-        }).catch(err => {
+        initEncryptedTunnel(forward_proxy_url, providers, true)
+        console.log('Encrypted tunnel initialized successfully');
+
+        interceptor_wasm.fetch(`${backend_url}/login`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        })
+            .then(response => {
+                console.log("fetch response:", response);
+                if (response.ok) {
+                    response.json().then(data => {
+                        let token = data.token || data["token"] || data.get("token");
+                        console.log('token', token)
+                    });
+                } else {
+                    alert(`An error occurred while logging in. ${response.status}`);
+                }
+            }).catch(err => {
+            console.error("Fetch error:", err);
+        });
+    } catch (err) {
         console.error(`Failed to initialize encrypted tunnel: ${err}`)
-    })
+    }
 });
 
 document.getElementById("persistence-check").addEventListener("click", () => {
