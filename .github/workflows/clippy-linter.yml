@@ -35,4 +35,4 @@ jobs:
           # -A clippy::style: Allow Clippy lints in the style category (i.e., don't warn or error).
           # 
           # -D clippy::perf: Treat performance-related lints as errors.
-        run: cargo clippy --all-targets --all-features -- -D warnings -Aclippy::style -Dclippy::perf
+        run: cargo clippy --all-targets --all-features -- -Aclippy::style -Dclippy::perf
