@@ -236,8 +236,7 @@ impl Debug for InitTunnelResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "InitTunnelResult {{ ntor_session_id: {}, client: `not debuggable` }}", // TODO: implement Debug for NTorClient
-            self.ntor_session_id,
+            "InitTunnelResult {{ ntor_session_id: `not debuggable`, client: `not debuggable` }}", // TODO: implement Debug for NTorClient
         )
     }
 }
