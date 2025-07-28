@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use bytes::Bytes;
 use reqwest::header::HeaderMap;
 use wasm_bindgen::{JsValue, UnwrapThrowExt};
@@ -229,6 +230,16 @@ pub struct InitTunnelResult {
     pub(crate) client: NTorClient,
     pub(crate) int_rp_jwt: String,
     pub(crate) int_fp_jwt: String,
+}
+
+impl Debug for InitTunnelResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "InitTunnelResult {{ ntor_session_id: {}, client: `not debuggable` }}", // TODO: implement Debug for NTorClient
+            self.ntor_session_id,
+        )
+    }
 }
 
 // #[wasm_bindgen]
