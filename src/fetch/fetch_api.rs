@@ -7,7 +7,7 @@ use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
 use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 
-use crate::ntor::WasmEncryptedMessage;
+use crate::fetch::WasmEncryptedMessage;
 
 use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
 use crate::network_state::{
@@ -53,9 +53,9 @@ pub struct L8ResponseObject {
     pub body: Vec<u8>,
 
     /* Below fields are present but not used because ResponseInit does not support */
-    pub _ok: bool,
-    pub _url: String,
-    pub _redirected: bool,
+    pub ok: bool,
+    pub url: String,
+    pub redirected: bool,
     /* Other fields are ignored because rust and wasm do not support */
 }
 
