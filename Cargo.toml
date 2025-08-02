@@ -3,6 +3,13 @@ name = "interceptor-wasm"
 version = "0.1.14"
 edition = "2024"
 
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
