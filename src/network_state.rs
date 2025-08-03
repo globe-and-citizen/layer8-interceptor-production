@@ -4,7 +4,7 @@ use futures::FutureExt;
 use wasm_bindgen::prelude::*;
 use web_sys::console;
 
-use crate::http_request::{InitTunnelResult, init_tunnel};
+use crate::init_tunnel::{InitTunnelResult, init_tunnel};
 
 thread_local! {
     /// This is the cache for all the InitTunnelResult present. It is the single source of truth for the state of the system.
