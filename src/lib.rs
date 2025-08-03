@@ -1,7 +1,3 @@
 mod fetch;
-mod http_request;
-mod indexeddb;
-mod ntor;
-mod utils;
-mod wgp_backend;
+mod init_tunnel;
 mod network_state;

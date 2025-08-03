@@ -5,14 +5,12 @@ const imagePreview = document.getElementById("image-preview");
 const fileUpload = document.getElementById("file-upload");
 
 document.getElementById("test-wasm").addEventListener("click", () => {
-    interceptor_wasm.test_wasm();
-
     let body = {
         username: "tester",
         password: "1234"
     }
     let forward_proxy_url = 'http://localhost:6191';
-    let backend_url = 'http://localhost:6193';
+    let backend_url = 'http://10.10.10.102:6193';
 
     try {
         let providers = [ServiceProvider.new(backend_url)];
@@ -43,38 +41,6 @@ document.getElementById("test-wasm").addEventListener("click", () => {
     } catch (err) {
         console.error(`Failed to initialize encrypted tunnel: ${err}`)
     }
-});
-
-document.getElementById("persistence-check").addEventListener("click", () => {
-    interceptor_wasm.persistence_check();
-});
-
-document.getElementById("check-encrypted-tunnel").addEventListener("click", () => {
-    interceptor_wasm
-        .check_encrypted_tunnel()
-        .then((val) => console.log("CheckEncryptedTunnel Result:", val))
-        .catch((err) => console.error("CheckEncryptedTunnel Error:", err));
-});
-
-document.getElementById("init-encrypted-tunnel").addEventListener("click", () => {
-    interceptor_wasm
-        .init_encrypted_tunnel({hello: "world"})
-        .then((val) => console.log("InitEncryptedTunnel Result:", val))
-        .catch((err) => console.error("InitEncryptedTunnel Error:", err));
-});
-
-document.getElementById("fetch").addEventListener("click", () => {
-    interceptor_wasm
-        .fetch("hello")
-        .then((val) => console.log("Fetch Result:", val))
-        .catch((err) => console.error("Fetch Error:", err));
-});
-
-document.getElementById("get-static").addEventListener("click", () => {
-    interceptor_wasm
-        .get_static("hello")
-        .then((val) => console.log("GetStatic Result:", val))
-        .catch((err) => console.error("GetStatic Error:", err));
 });
 
 fileUpload.addEventListener("change", (event) => {
