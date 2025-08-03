@@ -394,17 +394,6 @@ impl L8RequestObject {
 }
 
 async fn network_state_is_ready(backend_base_url: &str) -> Result<(), JsValue> {
-    async fn sleep(delay: i32) {
-        let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {
-            _ = web_sys::window()
-                .unwrap()
-                .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay);
-        };
-
-        let p = js_sys::Promise::new(&mut cb);
-        wasm_bindgen_futures::JsFuture::from(p).await.unwrap();
-    }
-
     loop {
         match NetworkReadyState::ready_state(backend_base_url)? {
             NetworkReadyState::CONNECTING(..) => {
@@ -802,4 +791,15 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
     // Release the reader lock
     reader.release_lock();
     Ok(data)
+}
+
+async fn sleep(delay: i32) {
+    let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {
+        _ = web_sys::window()
+            .unwrap()
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay);
+    };
+
+    let p = js_sys::Promise::new(&mut cb);
+    wasm_bindgen_futures::JsFuture::from(p).await.unwrap();
 }
