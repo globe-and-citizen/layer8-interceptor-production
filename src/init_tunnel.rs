@@ -1,4 +1,4 @@
-use std::{fmt::Debug};
+use std::fmt::Debug;
 
 use ntor::client::NTorClient;
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};

@@ -1,5 +1,5 @@
-use wasm_bindgen::prelude::wasm_bindgen;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::wasm_bindgen;
 
 pub mod fetch_api;
 pub mod formdata;

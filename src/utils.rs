@@ -3,7 +3,6 @@
 // use wasm_bindgen::prelude::*;
 // use web_sys::console;
 
-
 // pub fn js_map_to_http_header_map(headers: &js_sys::Map) -> HeaderMap {
 //     let mut header_map = HeaderMap::new();
 //
