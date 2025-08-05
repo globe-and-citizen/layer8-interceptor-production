@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ntor::common::NTorParty;
-use serde::{Deserialize, Serialize, de};
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
 use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};

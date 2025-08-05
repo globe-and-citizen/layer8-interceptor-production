@@ -14,7 +14,7 @@ thread_local! {
     static INIT_EVENT_QUEUE: RefCell<HashMap<String, InitEventItem>>= RefCell::new(HashMap::new());
 
     /// This is a flag to indicate if the dev mode is enabled. It is used to enable or disable the dev mode features like logging.
-    pub(crate) static DEV_FLAG: RefCell<bool> = RefCell::new(false);
+    pub(crate) static DEV_FLAG: RefCell<bool> = const { RefCell::new(false) };
 }
 
 // This event queue item is used to store the events that are waiting to be processed.
@@ -127,7 +127,7 @@ impl NetworkReadyState {
     /// This function checks the current state of the network for the given base URL. It will only return the state of the latest version
     /// if there are multiple versions of the network state.
     pub fn ready_state(base_url: &str) -> Result<NetworkReadyState, JsValue> {
-        let dev_flag = DEV_FLAG.with_borrow(|flag| flag.clone());
+        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
         let mut versions = Vec::new();
         if let Some(version) =
             NETWORK_STATE.with_borrow(|cache| cache.get(base_url).map(|val| val.version))
@@ -209,7 +209,7 @@ impl NetworkReadyState {
 
 // This function polls the future returning the result of the tunnel initialization if it is ready.
 fn pool_op(base_url: &str, fut: &mut InitEventItem) -> Option<Result<NetworkReadyState, JsValue>> {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| flag.clone());
+    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     let noop_waker = futures::task::noop_waker_ref();
     let mut ctx = futures::task::Context::from_waker(&noop_waker);
 
