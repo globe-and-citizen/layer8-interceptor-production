@@ -7,6 +7,8 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsValue, UnwrapThrowExt};
 use web_sys::console;
 
+use crate::network_state::DEV_FLAG;
+
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct InitTunnelResult {
@@ -25,6 +27,7 @@ impl Debug for InitTunnelResult {
 }
 
 pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValue> {
+    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     let mut client = NTorClient::new();
 
     let init_session_msg = client.initialise_session();
@@ -65,7 +68,10 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
     let response_bytes = match response.bytes().await {
         Ok(bytes) => bytes.to_vec(),
         Err(err) => {
-            console::error_1(&format!("Cannot read response body: {}", err).into());
+            if dev_flag {
+                console::error_1(&format!("Cannot read response body: {}", err).into());
+            }
+
             return Err(JsValue::from_str(&format!(
                 "Cannot read response body: {:?}",
                 err
@@ -88,13 +94,15 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
         return Err(JsValue::from_str("Failed to create nTor Client"));
     };
 
-    console::log_1(
-        &format!(
-            "NTor shared secret: {:?}",
-            client.get_shared_secret().unwrap_throw()
-        )
-        .into(),
-    );
+    if dev_flag {
+        console::log_1(
+            &format!(
+                "NTor shared secret: {:?}",
+                client.get_shared_secret().unwrap_throw()
+            )
+            .into(),
+        );
+    }
 
     let result = InitTunnelResult {
         client,
