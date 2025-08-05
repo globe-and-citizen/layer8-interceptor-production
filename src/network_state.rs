@@ -12,6 +12,9 @@ thread_local! {
     /// It maps a provider name (e.g., "https://provider.com") to its corresponding `NetworkState`.
     pub(crate) static NETWORK_STATE: RefCell<HashMap<String, Arc<NetworkState>>> = RefCell::new(HashMap::new());
     static INIT_EVENT_QUEUE: RefCell<HashMap<String, InitEventItem>>= RefCell::new(HashMap::new());
+
+    /// This is a flag to indicate if the dev mode is enabled. It is used to enable or disable the dev mode features like logging.
+    pub(crate) static DEV_FLAG: RefCell<bool> = RefCell::new(false);
 }
 
 // This event queue item is used to store the events that are waiting to be processed.
@@ -27,7 +30,6 @@ struct InitEventItem {
     init_event: Pin<Box<dyn Future<Output = Result<InitTunnelResult, JsValue>> + 'static>>,
     forward_proxy_url: String,
     version: Version,
-    _dev_flag: Option<bool>,
 }
 
 // This is an alias value to track the version of the tunnel. It is incremented every time a new tunnel is initialized.
@@ -39,7 +41,6 @@ pub(crate) struct NetworkState {
     pub init_tunnel_result: InitTunnelResult,
     pub forward_proxy_url: String,
     pub version: Version,
-    pub _dev_flag: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -63,11 +64,18 @@ impl ServiceProvider {
 pub fn init_encrypted_tunnel(
     forward_proxy_url: String,
     service_providers: Vec<ServiceProvider>,
-    _dev_flag: Option<bool>,
+    dev_flag: Option<bool>,
 ) -> Result<(), JsValue> {
+    if let Some(val) = dev_flag {
+        if val {
+            DEV_FLAG.with_borrow_mut(|flag| *flag = true);
+            console::log_1(&"Dev mode enabled".into());
+        }
+    }
+
     for service_provider in service_providers {
         let base_url = base_url(&service_provider.url)?;
-        schedule_init_event(&base_url, 1, forward_proxy_url.clone(), _dev_flag)?;
+        schedule_init_event(&base_url, 1, forward_proxy_url.clone())?;
     }
 
     Ok(())
@@ -77,7 +85,6 @@ pub(crate) fn schedule_init_event(
     base_url: &str,
     expected_next_version: Version,
     forward_proxy_url: String,
-    _dev_flag: Option<bool>,
 ) -> Result<(), JsValue> {
     // version is already connecting or connected, return early
     let current_version = NetworkReadyState::ready_state(base_url)?.version();
@@ -89,7 +96,6 @@ pub(crate) fn schedule_init_event(
     let init_event = InitEventItem {
         forward_proxy_url,
         version: current_version + 1,
-        _dev_flag,
         init_event: Box::pin(init_tunnel(backend_url)),
     };
 
@@ -121,6 +127,7 @@ impl NetworkReadyState {
     /// This function checks the current state of the network for the given base URL. It will only return the state of the latest version
     /// if there are multiple versions of the network state.
     pub fn ready_state(base_url: &str) -> Result<NetworkReadyState, JsValue> {
+        let dev_flag = DEV_FLAG.with_borrow(|flag| flag.clone());
         let mut versions = Vec::new();
         if let Some(version) =
             NETWORK_STATE.with_borrow(|cache| cache.get(base_url).map(|val| val.version))
@@ -140,7 +147,7 @@ impl NetworkReadyState {
                 let state = match val {
                     Ok(val) => val,
                     Err(err) => {
-                        // We failed to initialize, we;re popping this item from the queue
+                        // We failed to initialize, were popping this item from the queue
                         INIT_EVENT_QUEUE.with_borrow_mut(|queue| {
                             queue.remove(base_url);
                         });
@@ -159,13 +166,15 @@ impl NetworkReadyState {
             }
             None => {
                 // If the base URL is not in the cache or event queue, it means it was never initialized.
-                console::warn_1(
-                    &format!(
-                        "No init event found for URL: {}. Assuming it is already open.",
-                        base_url
-                    )
-                    .into(),
-                );
+                if dev_flag {
+                    console::log_1(
+                        &format!(
+                            "No init event found for URL: {}. Assuming it is already open.",
+                            base_url
+                        )
+                        .into(),
+                    );
+                }
 
                 if versions.is_empty() {
                     return Ok(NetworkReadyState::CLOSED);
@@ -180,7 +189,11 @@ impl NetworkReadyState {
             .cloned()
             .unwrap_or(NetworkReadyState::CLOSED);
 
-        console::log_1(&format!("URL: {}. Network state version: {:?}", base_url, latest).into());
+        if dev_flag {
+            console::log_1(
+                &format!("Latest network state for URL {}: {:?}", base_url, latest).into(),
+            );
+        }
 
         Ok(latest)
     }
@@ -196,15 +209,19 @@ impl NetworkReadyState {
 
 // This function polls the future returning the result of the tunnel initialization if it is ready.
 fn pool_op(base_url: &str, fut: &mut InitEventItem) -> Option<Result<NetworkReadyState, JsValue>> {
+    let dev_flag = DEV_FLAG.with_borrow(|flag| flag.clone());
     let noop_waker = futures::task::noop_waker_ref();
     let mut ctx = futures::task::Context::from_waker(&noop_waker);
 
     match fut.init_event.poll_unpin(&mut ctx) {
         Poll::Ready(val) => match val {
             Ok(init_tunnel_result) => {
-                console::log_1(
-                    &format!("Tunnel initialized successfully for base URL: {}", base_url).into(),
-                );
+                if dev_flag {
+                    console::log_1(
+                        &format!("Tunnel initialized successfully for base URL: {}", base_url)
+                            .into(),
+                    );
+                }
 
                 // add the result to the cache
                 let network_state = NetworkState {
@@ -212,7 +229,6 @@ fn pool_op(base_url: &str, fut: &mut InitEventItem) -> Option<Result<NetworkRead
                     init_tunnel_result,
                     forward_proxy_url: fut.forward_proxy_url.clone(),
                     version: fut.version,
-                    _dev_flag: fut._dev_flag,
                 };
 
                 NETWORK_STATE.with_borrow_mut(|cache| {
@@ -223,21 +239,30 @@ fn pool_op(base_url: &str, fut: &mut InitEventItem) -> Option<Result<NetworkRead
             }
 
             Err(err) => {
-                console::error_1(
-                    &format!(
-                        "Error initializing tunnel for base URL: {}. Error: {:?}",
-                        base_url, err
-                    )
-                    .into(),
-                );
+                if dev_flag {
+                    console::error_1(
+                        &format!(
+                            "Failed to initialize tunnel for base URL: {}. Error: {:?}",
+                            base_url, err
+                        )
+                        .into(),
+                    );
+                }
+
                 Some(Err(err))
             }
         },
 
         Poll::Pending => {
-            console::log_1(
-                &format!("Network is still initializing for base URL: {}", base_url).into(),
-            );
+            if dev_flag {
+                console::log_1(
+                    &format!(
+                        "Tunnel initialization is still pending for base URL: {}",
+                        base_url
+                    )
+                    .into(),
+                );
+            }
 
             Some(Ok(NetworkReadyState::CONNECTING(fut.version)))
         }

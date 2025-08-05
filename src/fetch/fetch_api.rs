@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ntor::common::NTorParty;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de};
 use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
 use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
@@ -11,7 +11,8 @@ use crate::fetch::WasmEncryptedMessage;
 
 use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
 use crate::network_state::{
-    NETWORK_STATE, NetworkReadyState, NetworkState, Version, base_url, schedule_init_event,
+    DEV_FLAG, NETWORK_STATE, NetworkReadyState, NetworkState, Version, base_url,
+    schedule_init_event,
 };
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
@@ -92,6 +93,8 @@ impl L8RequestObject {
         resource: JsValue,
         options: Option<RequestInit>,
     ) -> Result<Self, JsValue> {
+        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+
         // retrieve the uri
         let url = url::Url::parse(&backend_url)
             .map_err(|e| JsValue::from_str(&format!("Invalid URL: {}", e)))?;
@@ -101,7 +104,13 @@ impl L8RequestObject {
             uri.push_str(&format!("?{}", query));
         }
 
-        console::log_1(&format!("Request URI: {}", uri).into());
+        if dev_flag {
+            console::log_1(&format!("Request URL: {}", uri).into());
+        }
+
+        if dev_flag {
+            console::log_1(&format!("Resource URL: {}", uri).into());
+        }
 
         // using the Request object to fetch the resource
         if let Some(req) = resource.dyn_ref::<Request>() {
@@ -228,6 +237,7 @@ impl L8RequestObject {
         network_state: &NetworkState,
         reinitialize_attempt: bool,
     ) -> Result<NetworkResponse, JsValue> {
+        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
@@ -269,14 +279,18 @@ impl L8RequestObject {
         }
 
         let response_result = req_builder.send().await.inspect_err(|e| {
-            console::warn_1(&format!("Request failed with error: {}", e).into());
+            if dev_flag {
+                console::error_1(&format!("Request failed with error: {}", e).into());
+            }
         });
 
         let response = match response_result {
             Ok(resp) => resp,
             Err(err) => {
                 // error is caught before being propagated to the response
-                console::log_1(&format!("Request failed with error: {}", err).into());
+                if dev_flag {
+                    console::error_1(&format!("Request failed with error: {}", err).into());
+                }
 
                 // we can reinitialize the network state
                 if reinitialize_attempt {
@@ -287,7 +301,6 @@ impl L8RequestObject {
                         &base_url,
                         new_version,
                         network_state.forward_proxy_url.clone(),
-                        network_state._dev_flag,
                     )?;
 
                     return Ok(NetworkResponse::Reinitialize(new_version));
@@ -302,13 +315,15 @@ impl L8RequestObject {
 
         // status >= 400
         if response.status() >= reqwest::StatusCode::BAD_REQUEST {
-            console::log_1(
-                &format!(
-                    "Received error response from the proxy server: {}",
-                    response.status()
-                )
-                .into(),
-            );
+            if dev_flag {
+                console::log_1(
+                    &format!(
+                        "Received error response from the proxy server: {}",
+                        response.status()
+                    )
+                    .into(),
+                );
+            }
 
             // we can reinitialize the network state
             if reinitialize_attempt {
@@ -319,13 +334,14 @@ impl L8RequestObject {
                     &base_url,
                     new_version,
                     network_state.forward_proxy_url.clone(),
-                    network_state._dev_flag,
                 )?;
 
                 return Ok(NetworkResponse::Reinitialize(new_version));
             }
 
-            console::log_1(&"Unexpected response from the proxy server".into());
+            if dev_flag {
+                console::log_1(&"Unexpected response from the proxy server".into());
+            }
 
             return Ok(NetworkResponse::ProxyError(JsValue::from_str(&format!(
                 "Unexpected response from the proxy server: {}; With body: {}",
@@ -359,7 +375,9 @@ impl L8RequestObject {
         let l8_response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)
             .map_err(|e| JsValue::from_str(&format!("Failed to deserialize response: {}", e)))?;
 
-        console::log_1(&format!("Response: {:?}", l8_response).into());
+        if dev_flag {
+            console::log_1(&format!("Response: {:?}", l8_response).into());
+        }
 
         // convert L8ResponseObject to web_sys::Response
         let resp_init = ResponseInit::new();
@@ -394,16 +412,20 @@ impl L8RequestObject {
 }
 
 async fn network_state_is_ready(backend_base_url: &str) -> Result<(), JsValue> {
+    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     loop {
         match NetworkReadyState::ready_state(backend_base_url)? {
             NetworkReadyState::CONNECTING(..) => {
-                console::warn_1(
-                    &format!(
-                        "Network is still connecting for {}. Please wait...",
-                        backend_base_url
-                    )
-                    .into(),
-                );
+                if dev_flag {
+                    console::warn_1(
+                        &format!(
+                            "Network is still connecting for {}. Please wait...",
+                            backend_base_url
+                        )
+                        .into(),
+                    );
+                }
+
                 sleep(100).await; // Wait for 100 milliseconds before retrying
                 continue;
             }
@@ -431,6 +453,7 @@ pub async fn fetch(
     resource: JsValue,
     options: Option<RequestInit>,
 ) -> Result<web_sys::Response, JsValue> {
+    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     let backend_url = retrieve_resource_url(&resource)?;
     let backend_base_url = base_url(&backend_url)?;
 
@@ -478,18 +501,23 @@ pub async fn fetch(
 
             NetworkResponse::ProxyError(err) => {
                 // If the response is an error, we have exhausted the reinitialization attempts
-                console::error_1(&err);
+                if dev_flag {
+                    console::error_1(&err);
+                }
+
                 return Err(err);
             }
 
             NetworkResponse::Reinitialize(version) => {
-                console::log_1(
-                    &format!(
-                        "Reinitializing network state for {} with version {}",
-                        backend_base_url, version
-                    )
-                    .into(),
-                );
+                if dev_flag {
+                    console::log_1(
+                        &format!(
+                            "Reinitializing network state for {} with version {}",
+                            backend_base_url, version
+                        )
+                        .into(),
+                    );
+                }
 
                 // make sure that the network state is in a ready state
                 network_state_is_ready(&backend_base_url).await?;
@@ -553,6 +581,8 @@ fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
 fn headers_to_reqwest_headers(
     js_headers: JsValue,
 ) -> Result<HashMap<String, serde_json::Value>, JsValue> {
+    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+
     // If the headers are undefined or null, we return an empty HeaderMap
     if js_headers.is_null() || js_headers.is_undefined() {
         return Ok(HashMap::new());
@@ -563,7 +593,9 @@ fn headers_to_reqwest_headers(
         return js_headers_to_reqwest_headers(headers);
     }
 
-    console::log_1(&format!("Headers typeof: {:?}", js_headers.js_typeof()).into());
+    if dev_flag {
+        console::log_1(&format!("Headers typeof: {:?}", js_headers.js_typeof()).into());
+    }
 
     // we can then check if the headers are an instance of js_sys::Object
     if !js_headers.is_object() {
@@ -749,6 +781,7 @@ async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
 
 // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/ReadableStreamDefaultReader/read#example_1_-_simple_example>
 async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec<u8>, JsValue> {
+    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     let reader = stream.get_reader();
     let reader = reader
         .dyn_ref::<web_sys::ReadableStreamDefaultReader>()
@@ -770,7 +803,10 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
 
         if done {
             // If done, we break from the loop and return the accumulated data.
-            console::log_1(&format!("Stream read completed with {} bytes", data.len()).into());
+            if dev_flag {
+                console::log_1(&format!("Stream read completed with {} bytes", data.len()).into());
+            }
+
             break;
         }
 
