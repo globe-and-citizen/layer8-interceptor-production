@@ -9,7 +9,9 @@ use web_sys::{
 };
 
 use crate::fetch::{WasmEncryptedMessage, formdata::parse_form_data_to_array};
-use crate::network_state::{DEV_FLAG, InitEventState, NetworkState, base_url, schedule_init_event};
+use crate::network_state::{
+    DEV_FLAG, NetworkReadyState, NetworkState, base_url, schedule_init_event,
+};
 
 // This is a constant that defines the sleep delay in milliseconds for polling the network state.
 const SLEEP_DELAY: i32 = 100; // milliseconds
@@ -438,8 +440,8 @@ async fn get_network_state(
     dev_flag: bool,
 ) -> Result<Arc<NetworkState>, JsValue> {
     loop {
-        match InitEventState::ready_state(backend_base_url, true, dev_flag)? {
-            InitEventState::CONNECTING(..) => {
+        match NetworkReadyState::ready_state(backend_base_url, true, dev_flag)? {
+            NetworkReadyState::CONNECTING(..) => {
                 if dev_flag {
                     console::warn_1(
                         &format!(
@@ -453,10 +455,10 @@ async fn get_network_state(
                 sleep(SLEEP_DELAY).await; // Wait for 100 milliseconds before retrying
                 continue;
             }
-            InitEventState::OPEN(state) => {
+            NetworkReadyState::OPEN(state) => {
                 return Ok(state);
             }
-            InitEventState::CLOSED => {
+            NetworkReadyState::CLOSED => {
                 return Err(JsValue::from_str(&format!(
                     "Network is not ready for {}. Please make sure you called `layer8.initEncryptedTunnel(..)` first.",
                     backend_base_url
@@ -492,9 +494,7 @@ pub async fn fetch(
             .await?;
 
         match resp {
-            NetworkResponse::ProviderResponse(response) => {
-                return Ok(response);
-            }
+            NetworkResponse::ProviderResponse(response) => return Ok(response),
 
             NetworkResponse::ProxyError(err) => {
                 if dev_flag {

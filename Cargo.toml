@@ -26,6 +26,7 @@ web-sys = { version = "0.3.77", features = [
     "ResponseInit",
     "Headers",
     "ReadableStream",
+    "ReadableStreamType",
     "ReadableStreamDefaultReader",
     "FormData",
     "Blob",

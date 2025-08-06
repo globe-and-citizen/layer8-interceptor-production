@@ -24,10 +24,10 @@ thread_local! {
 // 1. An initialization call is pushed to the event items. This allows it to be polled later to make sure the tunnel initialization happened or errored out.
 // 2. Any calls to the `fetch` API will first check if the tunnel is initialized.
 //    - If it is initialized in the NETWORK_STATE, the call is made.
-//    - If it is not initialized, the initialization call is polled in the INIT_EVENT_QUEUE to check if it is done.
+//    - If it is not initialized, the initialization call is polled in the INIT_EVENT_ITEMS to check if it is done.
 //    - If the initialization call is done, the fetch call is made.
-//    - If the initialization call is not done, the fetch call waits and retries to poll (after x duration?) until the initialization call is done.
-// 3. If the initialization call failed in INIT_EVENT_QUEUE, the fetch call will return an error.
+//    - If the initialization call is not done, the fetch call waits and retries to poll until the initialization call is done.
+// 3. If the initialization call failed in INIT_EVENT_ITEMS, the fetch call will return an error.
 struct InitEventItem {
     init_event: Pin<Box<dyn Future<Output = Result<InitTunnelResult, JsValue>> + 'static>>,
     forward_proxy_url: String,
@@ -101,7 +101,7 @@ pub(crate) fn schedule_init_event(
 ) -> Result<(), JsValue> {
     // if there's already a version in the event items or connected state that is higher than the one we want to create we
     // short-circuit
-    let current_version = InitEventState::ready_state(base_url, false, dev_flag)?.version();
+    let current_version = NetworkReadyState::ready_state(base_url, false, dev_flag)?.version();
     if current_version >= expected_next_version {
         return Ok(());
     }
@@ -134,28 +134,28 @@ pub(crate) fn base_url(url: &str) -> Result<String, JsValue> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum InitEventState {
+pub(crate) enum NetworkReadyState {
     CONNECTING(Version),
     OPEN(Arc<NetworkState>),
     CLOSED,
 }
 
-impl InitEventState {
+impl NetworkReadyState {
     /// This function checks the current state of the network for the given base URL. It will only return the state of the latest version
     /// if there are multiple versions of the network state.
     ///
     /// If `is_lazy` is true and a version was found in connecting state, it will not poll the initialization event but instead report it as
-    /// [`InitEventState::CONNECTING`]
+    /// [`NetworkReadyState::CONNECTING`]
     pub(crate) fn ready_state(
         base_url: &str,
         poll_init_event: bool,
         dev_flag: bool,
-    ) -> Result<InitEventState, JsValue> {
+    ) -> Result<NetworkReadyState, JsValue> {
         let mut versions = Vec::new();
         if let Some(state) =
             NETWORK_STATE.with_borrow(|cache| cache.get(base_url).map(|val| Arc::clone(val)))
         {
-            versions.push(InitEventState::OPEN(state));
+            versions.push(NetworkReadyState::OPEN(state));
         }
 
         // let's short-circuit since we don't need to evaluate the init event if we find it
@@ -164,11 +164,14 @@ impl InitEventState {
                 .with_borrow(|init_event_items| init_event_items.get(base_url).map(|v| v.version));
 
             if let Some(version) = connecting_state {
-                versions.push(InitEventState::CONNECTING(version));
+                versions.push(NetworkReadyState::CONNECTING(version));
             }
 
             versions.sort_by_key(|a| a.version());
-            let latest = versions.last().cloned().unwrap_or(InitEventState::CLOSED);
+            let latest = versions
+                .last()
+                .cloned()
+                .unwrap_or(NetworkReadyState::CLOSED);
 
             if dev_flag {
                 console::log_1(
@@ -180,7 +183,7 @@ impl InitEventState {
         }
 
         // check if there's a version in the INIT_EVENT_QUEUE
-        let init_event_state: Option<Result<InitEventState, JsValue>> = INIT_EVENT_ITEMS
+        let init_event_state: Option<Result<NetworkReadyState, JsValue>> = INIT_EVENT_ITEMS
             .with_borrow_mut(
                 |init_event_items| match init_event_items.get_mut(base_url) {
                     Some(fut) => pool_op(base_url, fut, dev_flag),
@@ -202,7 +205,7 @@ impl InitEventState {
                     }
                 };
 
-                if let InitEventState::OPEN(..) = state {
+                if let NetworkReadyState::OPEN(..) = state {
                     INIT_EVENT_ITEMS.with_borrow_mut(|init_event_items| {
                         init_event_items.remove(base_url);
                     });
@@ -225,7 +228,10 @@ impl InitEventState {
         }
 
         versions.sort_by_key(|a| a.version());
-        let latest = versions.last().cloned().unwrap_or(InitEventState::CLOSED);
+        let latest = versions
+            .last()
+            .cloned()
+            .unwrap_or(NetworkReadyState::CLOSED);
 
         if dev_flag {
             console::log_1(
@@ -238,9 +244,9 @@ impl InitEventState {
 
     pub fn version(&self) -> Version {
         match self {
-            InitEventState::CONNECTING(ver) => *ver,
-            InitEventState::OPEN(state) => state.version,
-            InitEventState::CLOSED => 0, // No version for closed state
+            NetworkReadyState::CONNECTING(ver) => *ver,
+            NetworkReadyState::OPEN(state) => state.version,
+            NetworkReadyState::CLOSED => 0, // No version for closed state
         }
     }
 }
@@ -250,7 +256,7 @@ fn pool_op(
     base_url: &str,
     fut: &mut InitEventItem,
     dev_flag: bool,
-) -> Option<Result<InitEventState, JsValue>> {
+) -> Option<Result<NetworkReadyState, JsValue>> {
     let noop_waker = futures::task::noop_waker_ref();
     let mut ctx = futures::task::Context::from_waker(&noop_waker);
 
@@ -277,7 +283,7 @@ fn pool_op(
                     cache.insert(base_url.to_string(), Arc::clone(&network_state));
                 });
 
-                Some(Ok(InitEventState::OPEN(network_state)))
+                Some(Ok(NetworkReadyState::OPEN(network_state)))
             }
 
             Err(err) => {
@@ -306,7 +312,7 @@ fn pool_op(
                 );
             }
 
-            Some(Ok(InitEventState::CONNECTING(fut.version)))
+            Some(Ok(NetworkReadyState::CONNECTING(fut.version)))
         }
     }
 }
