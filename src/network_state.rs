@@ -31,6 +31,8 @@ thread_local! {
 struct InitEventItem {
     init_event: Pin<Box<dyn Future<Output = Result<InitTunnelResult, JsValue>> + 'static>>,
     forward_proxy_url: String,
+    // This is marker to keep track of how many iterations of the network_state have been created.
+    // Say it's 4, it means this is the 4th iteration of the network_state
     version: Version,
 }
 
@@ -43,6 +45,8 @@ pub(crate) struct NetworkState {
     pub init_tunnel_result: InitTunnelResult,
     pub forward_proxy_url: String,
     pub base_url: String,
+    // This is marker to keep track of how many iterations of the network_state have been created.
+    // Say it's 4, it means this is the 4th iteration of the network_state
     pub version: Version,
 }
 
