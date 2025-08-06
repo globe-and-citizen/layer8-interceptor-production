@@ -1,13 +1,10 @@
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::wasm_bindgen;
 
-pub mod fetch_api;
-pub mod formdata;
-mod req_properties;
+mod fetch_api;
+mod formdata;
 
-#[wasm_bindgen(getter_with_clone)]
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct WasmEncryptedMessage {
-    pub nonce: Vec<u8>,
-    pub data: Vec<u8>,
+struct WasmEncryptedMessage {
+    nonce: Vec<u8>,
+    data: Vec<u8>,
 }

@@ -26,6 +26,7 @@ web-sys = { version = "0.3.77", features = [
     "ResponseInit",
     "Headers",
     "ReadableStream",
+    "ReadableStreamType",
     "ReadableStreamDefaultReader",
     "FormData",
     "Blob",
@@ -56,6 +57,3 @@ serde = { version = "1.0.219", features = ["derive"] }
 wasm-streams = "0.4.2"
 url = "2.5.4"
 futures = "0.3.31"
-
-[target.wasm32-unknown-unknown]
-runner = 'wasm-bindgen-test-runner'
