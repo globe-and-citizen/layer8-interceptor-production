@@ -1,19 +1,22 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use ntor::common::NTorParty;
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::{prelude::*, throw_str};
+use wasm_bindgen::{JsValue, UnwrapThrowExt, prelude::*, throw_str};
 use wasm_streams::ReadableStream;
-use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
-
-use crate::fetch::WasmEncryptedMessage;
-
-use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
-use crate::network_state::{
-    DEV_FLAG, NETWORK_STATE, NetworkReadyState, NetworkState, Version, base_url,
-    schedule_init_event,
+use web_sys::{
+    AbortSignal, ReferrerPolicy, Request, RequestInit, RequestMode, ResponseInit, console,
 };
+
+use crate::fetch::{WasmEncryptedMessage, formdata::parse_form_data_to_array};
+use crate::network_state::{DEV_FLAG, InitEventState, NetworkState, base_url, schedule_init_event};
+
+// This is a constant that defines the sleep delay in milliseconds for polling the network state.
+const SLEEP_DELAY: i32 = 100; // milliseconds
+
+// This is the maximum number of networks states that can be used for a single fetch call. If one fails due to a network error
+// at our Fetch API layer, we can reinitialize the network state and retry the request.
+const NETWORK_STATES_COUNT_LIMIT: u8 = 3;
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -77,24 +80,24 @@ pub enum Mode {
     Navigate = 3,
 }
 
-// This enum is used to represent the response from the network state.
-pub enum NetworkResponse {
+// This enum is used to represent the response from trying to make http calls to the proxy server.
+pub(crate) enum NetworkResponse {
     // This is an error in response to the unexpected response from the proxy server.
     ProxyError(JsValue),
     // This is a successful response from the proxy server.
     ProviderResponse(web_sys::Response),
-    // This is an indicator that we are reinitializing the connection
-    Reinitialize(Version),
+    // This is an indicator that we are reinitializing the connection after a failed request.
+    // There's a maximum of 2 reinitializations per fetch call.
+    Reinitializing,
 }
 
 impl L8RequestObject {
-    pub async fn new(
+    async fn new(
         backend_url: String,
         resource: JsValue,
         options: Option<RequestInit>,
+        dev_flag: bool,
     ) -> Result<Self, JsValue> {
-        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
-
         // retrieve the uri
         let url = url::Url::parse(&backend_url)
             .map_err(|e| JsValue::from_str(&format!("Invalid URL: {}", e)))?;
@@ -105,28 +108,25 @@ impl L8RequestObject {
         }
 
         if dev_flag {
-            console::log_1(&format!("Request URL: {}", uri).into());
-        }
-
-        if dev_flag {
             console::log_1(&format!("Resource URL: {}", uri).into());
         }
 
         // using the Request object to fetch the resource
         if let Some(req) = resource.dyn_ref::<Request>() {
             let mut req_wrapper = L8RequestObject {
-                method: req.method().to_string().trim().to_uppercase(),
+                method: req.method().trim().to_uppercase(),
                 uri,
                 ..Default::default()
             };
 
             if let Some(readable_stream) = req.body() {
-                req_wrapper.body = readable_stream_to_bytes(readable_stream)
+                req_wrapper.body = readable_stream_to_bytes(readable_stream, dev_flag)
                     .await
                     .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?;
             };
 
-            req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
+            req_wrapper.headers =
+                headers_to_reqwest_headers(JsValue::from(req.headers()), dev_flag)?;
             req_wrapper.mode = Some(Mode::Cors); // Default mode for Request objects
             return Ok(req_wrapper);
         }
@@ -210,7 +210,7 @@ impl L8RequestObject {
 
                 Body::Stream(stream) => {
                     // Convert ReadableStream to bytes
-                    let bytes = readable_stream_to_bytes(stream.into_raw()).await?;
+                    let bytes = readable_stream_to_bytes(stream.into_raw(), dev_flag).await?;
                     req_wrapper.body = bytes;
                 }
             }
@@ -218,7 +218,7 @@ impl L8RequestObject {
 
         let raw_headers = options.get_headers();
         if !raw_headers.is_undefined() && !raw_headers.is_null() {
-            let headers = headers_to_reqwest_headers(raw_headers)?;
+            let headers = headers_to_reqwest_headers(raw_headers, dev_flag)?;
             req_wrapper.headers.extend(headers);
         }
 
@@ -228,21 +228,19 @@ impl L8RequestObject {
         Ok(req_wrapper)
     }
 
-    /// Sends the request using the Layer8 network state.
-    /// This method can recurse only once to retry sending the request if it fails.
-    /// If the request fails again, it will return an error.
-    pub async fn l8_send(
+    // Sends the request using the Layer8 network state. If `try_initializing_instead_of_error` is true and sending the request failed,
+    // we create a new init event and push it to the init event heap.
+    async fn l8_send(
         &self,
-        base_url: &str,
         network_state: &NetworkState,
-        reinitialize_attempt: bool,
+        try_initializing_instead_of_error: bool,
+        dev_flag: bool,
     ) -> Result<NetworkResponse, JsValue> {
-        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
 
-        let msg = {
+        let encrypted_payload = {
             let (nonce, encrypted) = network_state
                 .init_tunnel_result
                 .client
@@ -272,9 +270,10 @@ impl L8RequestObject {
                 "int_fp_jwt",
                 network_state.init_tunnel_result.int_fp_jwt.clone(),
             )
-            .body(msg);
+            .body(encrypted_payload);
 
         if self.body.is_empty() {
+            // This helps in the FP an RP know beforehand not to expect a stream since we are using CHUNKED_ENCODING
             req_builder = req_builder.header("x-empty-body", "true");
         }
 
@@ -293,17 +292,28 @@ impl L8RequestObject {
                 }
 
                 // we can reinitialize the network state
-                if reinitialize_attempt {
+                if try_initializing_instead_of_error {
                     let new_version = network_state.version + 1;
 
                     // schedule an init event for the next version
                     schedule_init_event(
-                        &base_url,
+                        &network_state.base_url,
                         new_version,
                         network_state.forward_proxy_url.clone(),
+                        dev_flag,
                     )?;
 
-                    return Ok(NetworkResponse::Reinitialize(new_version));
+                    if dev_flag {
+                        console::log_1(
+                            &format!(
+                                "Reinitializing network state for {} with version {}",
+                                network_state.base_url, new_version
+                            )
+                            .into(),
+                        );
+                    }
+
+                    return Ok(NetworkResponse::Reinitializing);
                 }
 
                 return Err(JsValue::from_str(&format!(
@@ -326,17 +336,28 @@ impl L8RequestObject {
             }
 
             // we can reinitialize the network state
-            if reinitialize_attempt {
+            if try_initializing_instead_of_error {
                 let new_version = network_state.version + 1;
 
                 // schedule an init event for the next version
                 schedule_init_event(
-                    &base_url,
+                    &network_state.base_url,
                     new_version,
                     network_state.forward_proxy_url.clone(),
+                    dev_flag,
                 )?;
 
-                return Ok(NetworkResponse::Reinitialize(new_version));
+                if dev_flag {
+                    console::log_1(
+                        &format!(
+                            "Reinitializing network state for {} with version {}",
+                            network_state.base_url, new_version
+                        )
+                        .into(),
+                    );
+                }
+
+                return Ok(NetworkResponse::Reinitializing);
             }
 
             if dev_flag {
@@ -358,13 +379,12 @@ impl L8RequestObject {
             .await
             .map_err(|e| JsValue::from_str(&format!("Failed to read response body: {}", e)))?;
 
-        let encrypted_data =
-            serde_json::from_slice::<WasmEncryptedMessage>(&body).map_err(|e| {
-                JsValue::from_str(&format!(
-                    "Failed to deserialize EncryptedMessage body: {}",
-                    e
-                ))
-            })?;
+        let encrypted_data: WasmEncryptedMessage = serde_json::from_slice(&body).map_err(|e| {
+            JsValue::from_str(&format!(
+                "Failed to deserialize EncryptedMessage body: {}",
+                e
+            ))
+        })?;
 
         let decrypted_response = network_state
             .init_tunnel_result
@@ -372,7 +392,7 @@ impl L8RequestObject {
             .wasm_decrypt(encrypted_data.nonce, encrypted_data.data)
             .map_err(|e| JsValue::from_str(&format!("Failed to decrypt response data: {}", e)))?;
 
-        let l8_response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)
+        let l8_response: L8ResponseObject = serde_json::from_slice(&decrypted_response)
             .map_err(|e| JsValue::from_str(&format!("Failed to deserialize response: {}", e)))?;
 
         if dev_flag {
@@ -411,11 +431,15 @@ impl L8RequestObject {
     }
 }
 
-async fn network_state_is_ready(backend_base_url: &str) -> Result<(), JsValue> {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+// This process retrieves the network state for the given backend base URL. If the network state is not ready, it will poll until it is ready
+// and return the network state.
+async fn get_network_state(
+    backend_base_url: &str,
+    dev_flag: bool,
+) -> Result<Arc<NetworkState>, JsValue> {
     loop {
-        match NetworkReadyState::ready_state(backend_base_url)? {
-            NetworkReadyState::CONNECTING(..) => {
+        match InitEventState::ready_state(backend_base_url, true, dev_flag)? {
+            InitEventState::CONNECTING(..) => {
                 if dev_flag {
                     console::warn_1(
                         &format!(
@@ -426,22 +450,20 @@ async fn network_state_is_ready(backend_base_url: &str) -> Result<(), JsValue> {
                     );
                 }
 
-                sleep(100).await; // Wait for 100 milliseconds before retrying
+                sleep(SLEEP_DELAY).await; // Wait for 100 milliseconds before retrying
                 continue;
             }
-            NetworkReadyState::OPEN(..) => {
-                break;
+            InitEventState::OPEN(state) => {
+                return Ok(state);
             }
-            NetworkReadyState::CLOSED => {
+            InitEventState::CLOSED => {
                 return Err(JsValue::from_str(&format!(
-                    "Network is not ready for {}. Please call `await layer8.initialize_tunnel(..)` first.",
+                    "Network is not ready for {}. Please make sure you called `layer8.initEncryptedTunnel(..)` first.",
                     backend_base_url
                 )));
             }
         }
     }
-
-    Ok(())
 }
 
 /// This API is expected to be a 1:1 mapping of the Fetch API.
@@ -454,83 +476,45 @@ pub async fn fetch(
     options: Option<RequestInit>,
 ) -> Result<web_sys::Response, JsValue> {
     let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
-    let backend_url = retrieve_resource_url(&resource)?;
-    let backend_base_url = base_url(&backend_url)?;
+    let (backend_base_url, backend_resource_url) = retrieve_base_and_resource_url(&resource)?;
+    let req_object =
+        L8RequestObject::new(backend_resource_url, resource, options, dev_flag).await?;
 
-    // make sure that the network state is in a ready state
-    network_state_is_ready(&backend_base_url).await?;
-
-    let get_network_state = || -> Result<Arc<NetworkState>, JsValue> {
-        let network_state = NETWORK_STATE.with_borrow(|cache| {
-            let state = match cache.get(&backend_base_url) {
-                Some(state) => Arc::clone(state), // This is a reference clone; cannot do interior mutability
-                None => {
-                    let err = JsValue::from_str(&format!(
-                        "L8 network state for {} is not initialized. Please call `await layer8.initialize_tunnel(..)` first.",
-                        backend_base_url
-                    ));
-
-                    return Err(err);
-                }
-            };
-
-            Ok(state)
-        })?;
-
-        Ok(network_state)
-    };
-
-    let req_object = L8RequestObject::new(backend_url, resource, options).await?;
-
-    // we can limit the reinitializations to 2 per fetch call and +1 for the initial request
-    let mut attempts = 3;
-    let mut network_state = get_network_state()?;
+    let mut network_state = get_network_state(&backend_base_url, dev_flag).await?;
+    let mut network_states_counter = 0; // we could check the versions but that would complicate things since fetch calls are async
     loop {
-        let reinit_attempt = attempts > 0;
         let resp = req_object
-            .l8_send(&backend_base_url, &network_state, reinit_attempt)
+            .l8_send(
+                &network_state,
+                network_states_counter > NETWORK_STATES_COUNT_LIMIT, // we limit our network states to a maximum of NETWORK_STATES_COUNT_LIMIT
+                dev_flag,
+            )
             .await?;
-
-        attempts -= 1;
 
         match resp {
             NetworkResponse::ProviderResponse(response) => {
-                // If the response is successful, we return it
                 return Ok(response);
             }
 
             NetworkResponse::ProxyError(err) => {
-                // If the response is an error, we have exhausted the reinitialization attempts
                 if dev_flag {
                     console::error_1(&err);
                 }
 
-                return Err(err);
+                return Err(err); //  we have exhausted the reinitialization attempts
             }
 
-            NetworkResponse::Reinitialize(version) => {
-                if dev_flag {
-                    console::log_1(
-                        &format!(
-                            "Reinitializing network state for {} with version {}",
-                            backend_base_url, version
-                        )
-                        .into(),
-                    );
-                }
-
-                // make sure that the network state is in a ready state
-                network_state_is_ready(&backend_base_url).await?;
-
-                // update the network state
-                network_state = get_network_state()?;
+            NetworkResponse::Reinitializing => {
+                network_state = get_network_state(&backend_base_url, dev_flag).await?; // get the new network state
+                network_states_counter += 1;
             }
         }
     }
 }
 
-// returns the URL of the resource to be fetched
-fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
+// This process returns the base and resource URL from the provided resource
+// Example: ("https://example.com","https://example.com/path?query=1#fragment")
+fn retrieve_base_and_resource_url(resource: &JsValue) -> Result<(String, String), JsValue> {
     let mut resource_url = String::new();
     if resource.is_string() {
         resource_url = resource
@@ -540,12 +524,15 @@ fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
 
     // If the resource is a URL object, we return it stringified.
     if resource.is_instance_of::<web_sys::Url>() {
-        return Ok(String::from(
+        resource_url = String::from(
             resource
                 .dyn_ref::<web_sys::Url>()
                 .expect_throw("Expected resource to be a web_sys::Url")
                 .to_string(),
-        ));
+        );
+
+        let base_url = base_url(&resource_url)?;
+        return Ok((base_url, resource_url));
     }
 
     if resource.is_instance_of::<web_sys::Request>() {
@@ -573,16 +560,16 @@ fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
         )));
     }
 
-    Ok(resource_url)
+    let base_url = base_url(&resource_url)?;
+    Ok((base_url, resource_url))
 }
 
 // Ref <https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#setting_headers>
 // we expect the headers to be either Headers or an Object
 fn headers_to_reqwest_headers(
     js_headers: JsValue,
+    dev_flag: bool,
 ) -> Result<HashMap<String, serde_json::Value>, JsValue> {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
-
     // If the headers are undefined or null, we return an empty HeaderMap
     if js_headers.is_null() || js_headers.is_undefined() {
         return Ok(HashMap::new());
@@ -780,8 +767,10 @@ async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
 }
 
 // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/ReadableStreamDefaultReader/read#example_1_-_simple_example>
-async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec<u8>, JsValue> {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+async fn readable_stream_to_bytes(
+    stream: web_sys::ReadableStream,
+    dev_flag: bool,
+) -> Result<Vec<u8>, JsValue> {
     let reader = stream.get_reader();
     let reader = reader
         .dyn_ref::<web_sys::ReadableStreamDefaultReader>()
@@ -829,13 +818,118 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
     Ok(data)
 }
 
+// Ref: <https://developer.mozilla.org/en-US/docs/Web/API/Request>
+pub fn add_properties_to_request(
+    req_wrapper: &mut L8RequestObject,
+    options: &web_sys::RequestInit,
+) {
+    // body used
+    req_wrapper.body_used = false; // default value
+
+    // cache
+    req_wrapper.cache = js_sys::Reflect::get(&options, &"cache".into())
+        .ok()
+        .and_then(|val| val.as_string())
+        .unwrap_or_else(|| "default".to_string()); // "default" — The browser looks for a matching request in its HTTP cache.
+
+    // credentials
+    req_wrapper.credentials = js_sys::Reflect::get(&options, &"credentials".into())
+        .ok()
+        .and_then(|val| val.as_string())
+        .unwrap_or_else(|| "same-origin".to_string()); // "same-origin" — The browser includes credentials in the request if the URL is on the same origin as the calling script.
+
+    // destination
+    req_wrapper.destination = js_sys::Reflect::get(&options, &"destination".into())
+        .ok()
+        .and_then(|val| val.as_string())
+        .unwrap_or_else(|| "".to_string()); // "" — The request does not have a specific destination.
+
+    // integrity
+    req_wrapper.integrity = js_sys::Reflect::get(&options, &"integrity".into())
+        .ok()
+        .and_then(|val| val.as_string())
+        .unwrap_or_else(|| "".to_string()); // "" — The request does not have an integrity value.
+
+    // is_history_navigation
+    req_wrapper.is_history_navigation =
+        js_sys::Reflect::get(&options, &"isHistoryNavigation".into())
+            .ok()
+            .and_then(|val| val.as_bool())
+            .unwrap_or(false); // false — The request is not a history navigation.
+
+    // keepalive
+    _ = js_sys::Reflect::get(&options, &"keepalive".into())
+        .and_then(|val| val.as_bool().ok_or(JsValue::NULL))
+        .inspect(|v| req_wrapper.keep_alive = Some(*v));
+
+    // mode
+    req_wrapper.mode = match options.get_mode() {
+        Some(RequestMode::SameOrigin) => Some(Mode::SameOrigin),
+        Some(RequestMode::NoCors) => Some(Mode::NoCors),
+        Some(RequestMode::Cors) => Some(Mode::Cors),
+        Some(RequestMode::Navigate) => Some(Mode::Navigate),
+        _ => Some(Mode::Cors),
+    };
+
+    // redirect
+    _ = js_sys::Reflect::get(&options, &"redirect".into()).inspect(|v| {
+        let val = v.as_string().unwrap_or_else(|| "follow".to_string());
+        req_wrapper.redirect = Some(val);
+    });
+
+    // referrer policy
+    let mut referrer_policy = "";
+    if let Some(referrer_policy_) = options.get_referrer_policy() {
+        referrer_policy = match referrer_policy_ {
+            ReferrerPolicy::NoReferrer => "no-referrer",
+            ReferrerPolicy::NoReferrerWhenDowngrade => "no-referrer-when-downgrade",
+            ReferrerPolicy::Origin => "origin",
+            ReferrerPolicy::OriginWhenCrossOrigin => "origin-when-cross-origin",
+            ReferrerPolicy::UnsafeUrl => "unsafe-url",
+            ReferrerPolicy::SameOrigin => "same-origin",
+            ReferrerPolicy::StrictOrigin => "strict-origin",
+            ReferrerPolicy::StrictOriginWhenCrossOrigin => "strict-origin-when-cross-origin",
+            _ => "",
+        };
+    }
+
+    if !referrer_policy.is_empty() {
+        req_wrapper.headers.insert(
+            "Referrer-Policy".to_string(),
+            serde_json::to_value(&referrer_policy).expect_throw(
+                "we expect the referrer policy to be a valid string that can be JSON serialized",
+            ),
+        );
+    }
+
+    // referrer
+    if referrer_policy != "no-referrer" {
+        // If the referrer policy is not "no-referrer", we can set the referrer header.
+        if let Some(referrer) = options.get_referrer() {
+            req_wrapper.headers.insert(
+                "Referrer".to_string(),
+                serde_json::to_value(&referrer).expect_throw(
+                    "we expect the referrer to be a valid string that can be JSON serialized",
+                ),
+            );
+        }
+    }
+
+    // signal
+    req_wrapper.signal = options.get_signal();
+}
+
 async fn sleep(delay: i32) {
-    let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {
+    let mut sleep_func = |resolve: js_sys::Function, _: js_sys::Function| {
         _ = web_sys::window()
-            .unwrap()
+            .expect_throw("Expected a valid window context to set a timeout")
             .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay);
     };
 
-    let p = js_sys::Promise::new(&mut cb);
-    wasm_bindgen_futures::JsFuture::from(p).await.unwrap();
+    let promise = js_sys::Promise::new(&mut sleep_func);
+    wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .expect_throw(
+            "This sleep operation should not fail provided we have a valid window context",
+        );
 }

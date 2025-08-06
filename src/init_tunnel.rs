@@ -7,8 +7,6 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsValue, UnwrapThrowExt};
 use web_sys::console;
 
-use crate::network_state::DEV_FLAG;
-
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct InitTunnelResult {
@@ -26,8 +24,7 @@ impl Debug for InitTunnelResult {
     }
 }
 
-pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValue> {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+pub async fn init_tunnel(backend_url: String, dev_flag: bool) -> Result<InitTunnelResult, JsValue> {
     let mut client = NTorClient::new();
 
     let init_session_msg = client.initialise_session();

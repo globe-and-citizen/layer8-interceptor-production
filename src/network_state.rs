@@ -7,19 +7,21 @@ use web_sys::console;
 use crate::init_tunnel::{InitTunnelResult, init_tunnel};
 
 thread_local! {
-    /// This is the cache for all the InitTunnelResult present. It is the single source of truth for the state of the system.
-    ///
-    /// It maps a provider name (e.g., "https://provider.com") to its corresponding `NetworkState`.
-    pub(crate) static NETWORK_STATE: RefCell<HashMap<String, Arc<NetworkState>>> = RefCell::new(HashMap::new());
-    static INIT_EVENT_QUEUE: RefCell<HashMap<String, InitEventItem>>= RefCell::new(HashMap::new());
+    // This is the cache for all the NetworkState present.
+    // It maps a provider name (e.g., "https://provider.com") to its corresponding `NetworkState`.
+    static NETWORK_STATE: RefCell<HashMap<String, Arc<NetworkState>>> = RefCell::new(HashMap::new());
 
-    /// This is a flag to indicate if the dev mode is enabled. It is used to enable or disable the dev mode features like logging.
+    // These events are lazily evaluated (async polling) when `fetch` is called, the evaluation is a
+    // blocking operation that waits for the tunnel to be initialized.
+    static INIT_EVENT_ITEMS: RefCell<HashMap<String, InitEventItem>>= RefCell::new(HashMap::new());
+
+    // This is a flag to indicate if the dev mode is enabled. It is used to enable or disable the dev mode features like logging.
     pub(crate) static DEV_FLAG: RefCell<bool> = const { RefCell::new(false) };
 }
 
-// This event queue item is used to store the events that are waiting to be processed.
+// This event item is used to store the events that are waiting to be processed.
 // Design:
-// 1. An initialization call is queued in the event queue. This allows it to be polled later to make sure the tunnel initialization happened or errored out.
+// 1. An initialization call is pushed to the event items. This allows it to be polled later to make sure the tunnel initialization happened or errored out.
 // 2. Any calls to the `fetch` API will first check if the tunnel is initialized.
 //    - If it is initialized in the NETWORK_STATE, the call is made.
 //    - If it is not initialized, the initialization call is polled in the INIT_EVENT_QUEUE to check if it is done.
@@ -40,20 +42,25 @@ pub(crate) struct NetworkState {
     pub http_client: reqwest::Client,
     pub init_tunnel_result: InitTunnelResult,
     pub forward_proxy_url: String,
+    pub base_url: String,
     pub version: Version,
 }
 
+/// This represents the service provider endpoint that the l8 network is connecting to.
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct ServiceProvider {
     url: String,
-    _options: Option<js_sys::Object>, // for now, options is just any object including empty
+    #[allow(dead_code)]
+    options: Option<js_sys::Object>, // for now, options is just any object including empty
 }
 
 #[wasm_bindgen]
 impl ServiceProvider {
-    pub fn new(url: String, _options: Option<js_sys::Object>) -> Self {
-        ServiceProvider { url, _options }
+    /// Allows the creation of a service provider with optional configurable options.
+    /// The options have not yet been implemented.
+    pub fn new(url: String, options: Option<js_sys::Object>) -> Self {
+        ServiceProvider { url, options }
     }
 }
 
@@ -75,7 +82,12 @@ pub fn init_encrypted_tunnel(
 
     for service_provider in service_providers {
         let base_url = base_url(&service_provider.url)?;
-        schedule_init_event(&base_url, 1, forward_proxy_url.clone())?;
+        schedule_init_event(
+            &base_url,
+            1,
+            forward_proxy_url.clone(),
+            dev_flag.unwrap_or(false),
+        )?;
     }
 
     Ok(())
@@ -85,9 +97,11 @@ pub(crate) fn schedule_init_event(
     base_url: &str,
     expected_next_version: Version,
     forward_proxy_url: String,
+    dev_flag: bool,
 ) -> Result<(), JsValue> {
-    // version is already connecting or connected, return early
-    let current_version = NetworkReadyState::ready_state(base_url)?.version();
+    // if there's already a version in the event items or connected state that is higher than the one we want to create we
+    // short-circuit
+    let current_version = InitEventState::ready_state(base_url, false, dev_flag)?.version();
     if current_version >= expected_next_version {
         return Ok(());
     }
@@ -96,14 +110,17 @@ pub(crate) fn schedule_init_event(
     let init_event = InitEventItem {
         forward_proxy_url,
         version: current_version + 1,
-        init_event: Box::pin(init_tunnel(backend_url)),
+        init_event: Box::pin(init_tunnel(backend_url, dev_flag)),
     };
 
-    INIT_EVENT_QUEUE.with_borrow_mut(|queue| queue.insert(base_url.to_string(), init_event));
+    INIT_EVENT_ITEMS.with_borrow_mut(|init_event_items| {
+        init_event_items.insert(base_url.to_string(), init_event)
+    });
     Ok(())
 }
 
-pub fn base_url(url: &str) -> Result<String, JsValue> {
+// This function extracts the base URL from a given URL string. Example input: "https://example.com/path?query=1#fragment" will return "https://example.com".
+pub(crate) fn base_url(url: &str) -> Result<String, JsValue> {
     let url =
         url::Url::parse(url).map_err(|e| JsValue::from_str(&format!("Invalid URL: {}", e)))?;
 
@@ -116,56 +133,85 @@ pub fn base_url(url: &str) -> Result<String, JsValue> {
     Ok(base_url)
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum NetworkReadyState {
+#[derive(Debug, Clone)]
+pub(crate) enum InitEventState {
     CONNECTING(Version),
-    OPEN(Version),
+    OPEN(Arc<NetworkState>),
     CLOSED,
 }
 
-impl NetworkReadyState {
+impl InitEventState {
     /// This function checks the current state of the network for the given base URL. It will only return the state of the latest version
     /// if there are multiple versions of the network state.
-    pub fn ready_state(base_url: &str) -> Result<NetworkReadyState, JsValue> {
-        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+    ///
+    /// If `is_lazy` is true and a version was found in connecting state, it will not poll the initialization event but instead report it as
+    /// [`InitEventState::CONNECTING`]
+    pub(crate) fn ready_state(
+        base_url: &str,
+        poll_init_event: bool,
+        dev_flag: bool,
+    ) -> Result<InitEventState, JsValue> {
         let mut versions = Vec::new();
-        if let Some(version) =
-            NETWORK_STATE.with_borrow(|cache| cache.get(base_url).map(|val| val.version))
+        if let Some(state) =
+            NETWORK_STATE.with_borrow(|cache| cache.get(base_url).map(|val| Arc::clone(val)))
         {
-            versions.push(NetworkReadyState::OPEN(version));
+            versions.push(InitEventState::OPEN(state));
+        }
+
+        // let's short-circuit since we don't need to evaluate the init event if we find it
+        if !poll_init_event {
+            let connecting_state = INIT_EVENT_ITEMS
+                .with_borrow(|init_event_items| init_event_items.get(base_url).map(|v| v.version));
+
+            if let Some(version) = connecting_state {
+                versions.push(InitEventState::CONNECTING(version));
+            }
+
+            versions.sort_by_key(|a| a.version());
+            let latest = versions.last().cloned().unwrap_or(InitEventState::CLOSED);
+
+            if dev_flag {
+                console::log_1(
+                    &format!("Latest network state for URL {}: {:?}", base_url, latest).into(),
+                );
+            }
+
+            return Ok(latest);
         }
 
         // check if there's a version in the INIT_EVENT_QUEUE
-        let init_queue_item: Option<Result<NetworkReadyState, JsValue>> = INIT_EVENT_QUEUE
-            .with_borrow_mut(|queue| match queue.get_mut(base_url) {
-                Some(fut) => pool_op(base_url, fut),
-                None => None,
-            });
+        let init_event_state: Option<Result<InitEventState, JsValue>> = INIT_EVENT_ITEMS
+            .with_borrow_mut(
+                |init_event_items| match init_event_items.get_mut(base_url) {
+                    Some(fut) => pool_op(base_url, fut, dev_flag),
+                    None => None,
+                },
+            );
 
-        match init_queue_item {
+        match init_event_state {
             Some(val) => {
                 let state = match val {
                     Ok(val) => val,
                     Err(err) => {
-                        // We failed to initialize, were popping this item from the queue
-                        INIT_EVENT_QUEUE.with_borrow_mut(|queue| {
-                            queue.remove(base_url);
+                        // we failed to initialize, we are removing the entry from the init event items
+                        INIT_EVENT_ITEMS.with_borrow_mut(|init_event_items| {
+                            init_event_items.remove(base_url);
                         });
 
                         return Err(err);
                     }
                 };
 
-                if let NetworkReadyState::OPEN(..) = state {
-                    INIT_EVENT_QUEUE.with_borrow_mut(|queue| {
-                        queue.remove(base_url);
+                if let InitEventState::OPEN(..) = state {
+                    INIT_EVENT_ITEMS.with_borrow_mut(|init_event_items| {
+                        init_event_items.remove(base_url);
                     });
                 }
 
                 versions.push(state);
             }
             None => {
-                // If the base URL is not in the cache or event queue, it means it was never initialized.
+                // If the base URL is not in the cache or init event items, it means it was never initialized.
                 if dev_flag {
                     console::log_1(
                         &format!(
@@ -175,19 +221,11 @@ impl NetworkReadyState {
                         .into(),
                     );
                 }
-
-                if versions.is_empty() {
-                    return Ok(NetworkReadyState::CLOSED);
-                }
             }
         }
 
         versions.sort_by_key(|a| a.version());
-
-        let latest = versions
-            .last()
-            .cloned()
-            .unwrap_or(NetworkReadyState::CLOSED);
+        let latest = versions.last().cloned().unwrap_or(InitEventState::CLOSED);
 
         if dev_flag {
             console::log_1(
@@ -200,16 +238,19 @@ impl NetworkReadyState {
 
     pub fn version(&self) -> Version {
         match self {
-            NetworkReadyState::CONNECTING(ver) => *ver,
-            NetworkReadyState::OPEN(ver) => *ver,
-            NetworkReadyState::CLOSED => 0, // No version for closed state
+            InitEventState::CONNECTING(ver) => *ver,
+            InitEventState::OPEN(state) => state.version,
+            InitEventState::CLOSED => 0, // No version for closed state
         }
     }
 }
 
 // This function polls the future returning the result of the tunnel initialization if it is ready.
-fn pool_op(base_url: &str, fut: &mut InitEventItem) -> Option<Result<NetworkReadyState, JsValue>> {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+fn pool_op(
+    base_url: &str,
+    fut: &mut InitEventItem,
+    dev_flag: bool,
+) -> Option<Result<InitEventState, JsValue>> {
     let noop_waker = futures::task::noop_waker_ref();
     let mut ctx = futures::task::Context::from_waker(&noop_waker);
 
@@ -224,18 +265,19 @@ fn pool_op(base_url: &str, fut: &mut InitEventItem) -> Option<Result<NetworkRead
                 }
 
                 // add the result to the cache
-                let network_state = NetworkState {
+                let network_state = Arc::new(NetworkState {
                     http_client: reqwest::Client::new(),
                     init_tunnel_result,
                     forward_proxy_url: fut.forward_proxy_url.clone(),
                     version: fut.version,
-                };
-
-                NETWORK_STATE.with_borrow_mut(|cache| {
-                    cache.insert(base_url.to_string(), Arc::new(network_state));
+                    base_url: base_url.to_string(),
                 });
 
-                Some(Ok(NetworkReadyState::OPEN(fut.version)))
+                NETWORK_STATE.with_borrow_mut(|cache| {
+                    cache.insert(base_url.to_string(), Arc::clone(&network_state));
+                });
+
+                Some(Ok(InitEventState::OPEN(network_state)))
             }
 
             Err(err) => {
@@ -264,7 +306,7 @@ fn pool_op(base_url: &str, fut: &mut InitEventItem) -> Option<Result<NetworkRead
                 );
             }
 
-            Some(Ok(NetworkReadyState::CONNECTING(fut.version)))
+            Some(Ok(InitEventState::CONNECTING(fut.version)))
         }
     }
 }

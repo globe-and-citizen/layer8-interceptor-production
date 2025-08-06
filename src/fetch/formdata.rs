@@ -2,7 +2,7 @@ use js_sys::Uint8Array;
 use wasm_bindgen::{JsCast, JsValue};
 
 // Converts an instance of `web_sys::FormData` to a `Uint8Array`
-pub async fn parse_form_data_to_array(
+pub(crate) async fn parse_form_data_to_array(
     form: web_sys::FormData,
     boundary: String,
 ) -> Result<Vec<u8>, JsValue> {
@@ -108,6 +108,7 @@ fn escape(str: &str) -> String {
         .replace('\r', "%0D")
         .replace('"', "%22")
 }
+
 fn normalize_linefeeds(value: &str) -> String {
     value.replace("\r\n", "\n").replace('\r', "\n")
 }
