@@ -12,12 +12,11 @@ use crate::fetch::{
     WasmEncryptedMessage, formdata::parse_form_data_to_array,
     req_properties::add_properties_to_request,
 };
-use crate::http_call_indirection::{ActualHttpCaller, HttpCaller};
+use crate::http_call_indirection::ActualHttpCaller;
 use crate::init_tunnel::init_tunnel;
 use crate::network_state::{
     DEV_FLAG, NETWORK_STATE, NetworkState, NetworkStateOpen, base_url, get_network_state,
 };
-use crate::utils;
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
