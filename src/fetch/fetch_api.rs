@@ -238,8 +238,8 @@ impl L8RequestObject {
         &self,
         network_state_open: &NetworkStateOpen,
         reinitialize_attempt: bool,
+        dev_flag: bool,
     ) -> Result<NetworkResponse, JsValue> {
-        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
@@ -289,11 +289,6 @@ impl L8RequestObject {
         let response = match response_result {
             Ok(resp) => resp,
             Err(err) => {
-                // error is caught before being propagated to the response
-                if dev_flag {
-                    console::error_1(&format!("Request failed with error: {}", err).into());
-                }
-
                 // we can reinitialize the network state
                 if reinitialize_attempt {
                     return Ok(NetworkResponse::Reinitialize);
@@ -321,10 +316,6 @@ impl L8RequestObject {
             // we can reinitialize the network state
             if reinitialize_attempt {
                 return Ok(NetworkResponse::Reinitialize);
-            }
-
-            if dev_flag {
-                console::log_1(&"Unexpected response from the proxy server".into());
             }
 
             return Ok(NetworkResponse::ProxyError(JsValue::from_str(&format!(
@@ -425,7 +416,10 @@ pub async fn fetch(
             }
         };
 
-        let resp = req_object.l8_send(network_state_open, attempts > 0).await?;
+        let resp = req_object
+            .l8_send(network_state_open, attempts > 0, dev_flag)
+            .await?;
+
         // we decrement the attempts, incase we have reinitialized the network state
         attempts -= 1;
 
