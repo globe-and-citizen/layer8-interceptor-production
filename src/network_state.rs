@@ -119,7 +119,8 @@ pub(crate) async fn get_network_state(
     provider_url: &str,
     dev_flag: bool,
 ) -> Result<Rc<NetworkState>, JsValue> {
-    let network_state = NETWORK_STATE
+    loop {
+        let network_state = NETWORK_STATE
             .with_borrow(|cache| cache.get(provider_url).map(Rc::clone))
             .ok_or_else(|| {
                 JsValue::from_str(&format!(
@@ -128,7 +129,6 @@ pub(crate) async fn get_network_state(
                 ))
             })?;
 
-    loop {
         match network_state.as_ref() {
             NetworkState::OPEN { .. } => return Ok(network_state),
             NetworkState::ERRORED(err) => return Err(err.clone()),
