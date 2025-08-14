@@ -7,6 +7,7 @@ use crate::{
     constants::SLEEP_DELAY,
     http_call_indirection::ActualHttpCaller,
     init_tunnel::{InitTunnelResult, init_tunnel},
+    utils,
 };
 
 thread_local! {
@@ -140,7 +141,7 @@ pub(crate) async fn get_network_state(
                     );
                 }
 
-                sleep(SLEEP_DELAY).await; // wait before checking
+                utils::sleep(SLEEP_DELAY).await; // wait before checking
                 continue;
             }
         }
@@ -158,15 +159,4 @@ pub(crate) fn base_url(url: &str) -> Result<String, JsValue> {
     }
 
     Ok(base_url)
-}
-
-async fn sleep(delay: i32) {
-    let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {
-        _ = web_sys::window()
-            .unwrap()
-            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay);
-    };
-
-    let p = js_sys::Promise::new(&mut cb);
-    wasm_bindgen_futures::JsFuture::from(p).await.unwrap();
 }
