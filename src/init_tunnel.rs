@@ -1,11 +1,14 @@
 use std::fmt::Debug;
 
+use reqwest::Response;
+use serde::{Deserialize, Serialize};
+use wasm_bindgen::{JsValue, UnwrapThrowExt, prelude::wasm_bindgen};
+use web_sys::console;
+
 use ntor::client::NTorClient;
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
-use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::wasm_bindgen;
-use wasm_bindgen::{JsValue, UnwrapThrowExt};
-use web_sys::console;
+
+use crate::utils;
 
 use crate::network_state::DEV_FLAG;
 
@@ -21,7 +24,8 @@ impl Debug for InitTunnelResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "InitTunnelResult {{ ntor_session_id: `not debuggable`, client: `not debuggable` }}", // TODO: implement Debug for NTorClient
+            "InitTunnelResult {{ int_fp_jwt: {},\n int_rp_jwt: {},\n client: `not debuggable` }}", // TODO: implement Debug for NTorClient
+            self.int_fp_jwt, self.int_rp_jwt
         )
     }
 }
@@ -54,16 +58,44 @@ pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValu
         public_key: init_session_msg.public_key(),
     };
 
-    let response = reqwest::Client::new()
-        .post(backend_url)
-        .header("Content-Length", "application/json")
-        .body(
-            serde_json::to_string(&request_body)
-                .expect_throw("Failed to serialize request body to JSON"),
-        )
-        .send()
-        .await
-        .map_err(|e| JsValue::from_str(&format!("Request failed: {}", e)))?;
+    let mut count = 0;
+
+    let response: Response;
+    loop {
+        count += 1;
+
+        let request = reqwest::Client::new()
+            .post(backend_url.clone())
+            .header("Content-Length", "application/json")
+            .header("Retry-count", count)
+            .body(
+                serde_json::to_string(&request_body)
+                    .expect_throw("Failed to serialize request body to JSON"),
+            )
+            .send();
+
+        match request.await {
+            Ok(res) => {
+                response = res;
+                break;
+            }
+            Err(err) => {
+                console::error_1(&format!("Request failed: {}. Attempt: {}", err, count).into());
+
+                if count >= 3 {
+                    console::error_1(
+                        &format!("Failed to initialize tunnel after {} attempts", count).into(),
+                    );
+                    return Err(JsValue::from_str(&format!(
+                        "Failed to initialize tunnel after {} attempts: {}",
+                        count, err
+                    )));
+                }
+                // Wait for a short period (1s) before retrying
+                utils::sleep(1000).await;
+            }
+        };
+    }
 
     let response_bytes = match response.bytes().await {
         Ok(bytes) => bytes.to_vec(),
