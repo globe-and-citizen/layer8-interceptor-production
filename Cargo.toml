@@ -11,7 +11,10 @@ debug = false
 panic = "abort"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = [
+    "cdylib", # Necessary for WebAssembly targets
+    "lib",    # Necessary for running benchmarks, tests
+]
 
 [dependencies]
 uuid = { version = "1", features = ["js", "v4"] }
@@ -49,7 +52,7 @@ web-sys = { version = "0.3.77", features = [
 ] }
 reqwest = { version = "0.12.15", features = ["json"] }
 serde_json = "1.0.140"
-serde-wasm-bindgen = "0.4"
+serde-wasm-bindgen = "0.6.5"
 js-sys = "0.3.77"
 ntor = { git = "https://github.com/globe-and-citizen/ntor.git", tag = "0.1.0" }
 serde = { version = "1.0.219", features = ["derive"] }
@@ -57,5 +60,16 @@ wasm-streams = "0.4.2"
 url = "2.5.4"
 futures = "0.3.31"
 
-[target.wasm32-unknown-unknown]
-runner = 'wasm-bindgen-test-runner'
+[dev-dependencies]
+wasm-bindgen-test = "0.3.50"
+criterion = { version = "0.7.0", default-features = false, features = [
+    "html_reports",
+] }
+
+[[bench]]
+name = "fibonacci"
+harness = false
+
+[[bench]]
+name = "formdata"
+harness = false

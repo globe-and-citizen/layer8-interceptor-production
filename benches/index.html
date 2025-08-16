@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+    <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Interceptor Benchmarks</title>
+    <script type="module">
+      import {
+        init,
+        Wasmer,
+        Directory
+      } from "https://unpkg.com/@wasmer/sdk@0.8.0-beta.1/dist/index.mjs";
+
+      async function runFormData() {
+        await init();
+        let wasm = await fetch("formdata.wasm").then(response =>{
+            return response.arrayBuffer();
+        });
+
+        const project = new Directory();   
+
+        const example = await Wasmer.fromFile(wasm);
+      
+        const result = await example.entrypoint.run({
+            //  wasmer run --dir=./benches formdata.wasm -- --bench                         
+            args: ["-e", "--bench"],
+        });
+     
+        const outputExample = await result.wait();
+        console.log(outputExample.stdout);
+      }
+
+      await runFormData();
+    </script>
+  </head>
+
+  <body>
+    <h1 id="status"></h1>
+    <pre><code id="stdout"></code></pre>
+  </body>
+</html>
