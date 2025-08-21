@@ -4,7 +4,10 @@ use futures::FutureExt;
 use wasm_bindgen::prelude::*;
 use web_sys::console;
 
-use crate::init_tunnel::{InitTunnelResult, init_tunnel};
+use crate::{
+    http_call::ActualHttpCaller,
+    init_tunnel::{InitTunnelResult, init_tunnel},
+};
 
 thread_local! {
     /// This is the cache for all the InitTunnelResult present. It is the single source of truth for the state of the system.
@@ -96,7 +99,7 @@ pub(crate) fn schedule_init_event(
     let init_event = InitEventItem {
         forward_proxy_url,
         version: current_version + 1,
-        init_event: Box::pin(init_tunnel(backend_url)),
+        init_event: Box::pin(init_tunnel(backend_url, ActualHttpCaller)),
     };
 
     INIT_EVENT_QUEUE.with_borrow_mut(|queue| queue.insert(base_url.to_string(), init_event));

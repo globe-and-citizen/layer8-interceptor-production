@@ -1,16 +1,16 @@
 use std::fmt::Debug;
 
-use reqwest::Response;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use wasm_bindgen::{JsValue, UnwrapThrowExt, prelude::wasm_bindgen};
 use web_sys::console;
 
 use ntor::client::NTorClient;
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 
+use crate::http_call::HttpCallerResponse;
 use crate::utils;
-
-use crate::network_state::DEV_FLAG;
+use crate::{http_call::HttpCaller, network_state::DEV_FLAG};
 
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
@@ -18,6 +18,19 @@ pub struct InitTunnelResult {
     pub(crate) client: NTorClient,
     pub(crate) int_rp_jwt: String,
     pub(crate) int_fp_jwt: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct InitTunnelResponse {
+    pub ephemeral_public_key: Vec<u8>,
+    pub t_b_hash: Vec<u8>,
+    #[serde(rename = "jwt1")]
+    pub int_rp_jwt: String,
+    #[serde(rename = "jwt2")]
+    pub int_fp_jwt: String,
+    pub server_id: String,
+    #[serde(rename = "public_key")]
+    pub static_public_key: Vec<u8>,
 }
 
 impl Debug for InitTunnelResult {
@@ -30,51 +43,30 @@ impl Debug for InitTunnelResult {
     }
 }
 
-pub async fn init_tunnel(backend_url: String) -> Result<InitTunnelResult, JsValue> {
+pub async fn init_tunnel(
+    backend_url: String,
+    http_caller: impl HttpCaller,
+) -> Result<InitTunnelResult, JsValue> {
     let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     let mut client = NTorClient::new();
 
     let init_session_msg = client.initialise_session();
-
-    #[derive(Serialize)]
-    struct InitTunnelRequest {
-        pub public_key: Vec<u8>,
-    }
-
-    #[derive(Deserialize)]
-    struct InitTunnelResponse {
-        ephemeral_public_key: Vec<u8>,
-        t_b_hash: Vec<u8>,
-        #[serde(rename = "jwt1")]
-        int_rp_jwt: String,
-        #[serde(rename = "jwt2")]
-        int_fp_jwt: String,
-        server_id: String,
-        #[serde(rename = "public_key")]
-        static_public_key: Vec<u8>,
-    }
-
-    let request_body = InitTunnelRequest {
-        public_key: init_session_msg.public_key(),
-    };
+    let request_body = json!({
+        "public_key": init_session_msg.public_key(),
+    });
 
     let mut count = 0;
-
-    let response: Response;
+    let response: HttpCallerResponse;
     loop {
         count += 1;
 
-        let request = reqwest::Client::new()
+        let req_builder = reqwest::Client::new()
             .post(backend_url.clone())
             .header("Content-Length", "application/json")
             .header("Retry-count", count)
-            .body(
-                serde_json::to_string(&request_body)
-                    .expect_throw("Failed to serialize request body to JSON"),
-            )
-            .send();
+            .body(request_body.to_string());
 
-        match request.await {
+        match http_caller.send(req_builder).await {
             Ok(res) => {
                 response = res;
                 break;
