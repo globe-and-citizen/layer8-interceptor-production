@@ -1,32 +1,67 @@
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
 use {
-    layer8_interceptor_production::fetch::formdata::parse_form_data_to_array,
-    serde::{Deserialize, Serialize},
+    layer8_interceptor_production::{
+        fetch::formdata::parse_form_data_to_array, http_call_indirection::MockHttpCaller,
+        init_tunnel::init_tunnel,
+    },
     uuid::Uuid,
     wasm_bindgen_test::*,
-    web_sys::FormData,
+    web_sys::{FormData, console},
 };
-
-wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 const MB: u32 = 1024 * 1024; // 1 MB in bytes
 
-#[derive(Serialize, Deserialize)]
-struct BenchmarkResult {
-    name: String,
-    benches: Vec<Benchmark>,
-}
+#[wasm_bindgen_test]
+pub async fn init_tunnel_simple_bench() {
+    // doing 10_000 iterations of init_tunnel to benchmark
+    let mut total_duration = 0.0;
+    let mut durations = Vec::with_capacity(10_000);
+    let mut best_duration = f64::MAX;
+    let mut worst_duration = f64::MIN;
+    for _ in 0..10_000 {
+        let start = js_sys::Date::now();
+        let _ = init_tunnel(
+            String::from("https://example.com/"),
+            MockHttpCaller {
+                data: vec![],
+                init: true,
+            },
+        )
+        .await
+        .unwrap();
 
-#[derive(Serialize, Deserialize)]
-struct Benchmark {
-    variant: String,
-    average_duration: f64,
-    standard_deviation: f64,
-    best_duration: f64,
+        let duration = js_sys::Date::now() - start;
+        total_duration += duration;
+        durations.push(duration);
+        if duration < best_duration {
+            best_duration = duration;
+        }
+        if duration > worst_duration {
+            worst_duration = duration;
+        }
+    }
+
+    let average_duration = total_duration / durations.len() as f64;
+    let standard_deviation = (durations
+        .iter()
+        .map(|&d| (d - average_duration).powi(2))
+        .sum::<f64>()
+        / durations.len() as f64)
+        .sqrt();
+
+    console::log_1(
+        &format!(
+            "Average durarion: {:.6}ms, Standard deviation: {:.6}ms, Best: {:.6}ms, Worst: {:.6}ms",
+            average_duration, standard_deviation, best_duration, worst_duration
+        )
+        .into(),
+    );
 }
 
 #[wasm_bindgen_test]
 async fn formdata_simple_bench() {
-    let mut benchmark_result = BenchmarkResult {
+    let mut benchmark_result = benchmark_utils::BenchmarkResult {
         name: "FormData Parsing Benchmark".to_string(),
         benches: Vec::new(),
     };
@@ -100,7 +135,7 @@ async fn formdata_simple_bench() {
         web_sys::console::log_2(&JsValue::from_str(&msg), &JsValue::from_str(style));
 
         // create benchmark result
-        benchmark_result.benches.push(Benchmark {
+        benchmark_result.benches.push(benchmark_utils::Benchmark {
             variant: format!("{}MB", i),
             average_duration: avg_duration,
             standard_deviation: stddev,
@@ -111,4 +146,22 @@ async fn formdata_simple_bench() {
     web_sys::console::log_1(
         &format!("{}", serde_json::to_string(&benchmark_result).unwrap()).into(),
     );
+}
+
+mod benchmark_utils {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize)]
+    pub struct BenchmarkResult {
+        pub name: String,
+        pub benches: Vec<Benchmark>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub struct Benchmark {
+        pub variant: String,
+        pub average_duration: f64,
+        pub standard_deviation: f64,
+        pub best_duration: f64,
+    }
 }

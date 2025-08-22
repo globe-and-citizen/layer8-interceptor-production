@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::console;
 
 use crate::{
-    http_call::ActualHttpCaller,
+    http_call_indirection::ActualHttpCaller,
     init_tunnel::{InitTunnelResult, init_tunnel},
 };
 

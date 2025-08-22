@@ -61,7 +61,8 @@ wasm-streams = "0.4.2"
 url = "2.5.4"
 futures = "0.3.31"
 bytes = "1.10.1"
+hyper = "1.7.0"
+x25519-dalek = "2.0.1"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.50"
-hyper = "1.7.0"

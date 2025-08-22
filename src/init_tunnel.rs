@@ -8,9 +8,11 @@ use web_sys::console;
 use ntor::client::NTorClient;
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 
-use crate::http_call::HttpCallerResponse;
 use crate::utils;
-use crate::{http_call::HttpCaller, network_state::DEV_FLAG};
+use crate::{
+    http_call_indirection::{HttpCaller, HttpCallerResponse},
+    network_state::DEV_FLAG,
+};
 
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
@@ -66,7 +68,7 @@ pub async fn init_tunnel(
             .header("Retry-count", count)
             .body(request_body.to_string());
 
-        match http_caller.send(req_builder).await {
+        match http_caller.clone().send(req_builder).await {
             Ok(res) => {
                 response = res;
                 break;
@@ -103,8 +105,8 @@ pub async fn init_tunnel(
         }
     };
 
-    let response_body =
-        serde_json::from_slice::<InitTunnelResponse>(&response_bytes).unwrap_throw();
+    let response_body = serde_json::from_slice::<InitTunnelResponse>(&response_bytes)
+        .expect_throw("Failed to deserialize response body to InitTunnelResponse");
 
     let init_msg_response =
         InitSessionResponse::new(response_body.ephemeral_public_key, response_body.t_b_hash);
@@ -122,7 +124,9 @@ pub async fn init_tunnel(
         console::log_1(
             &format!(
                 "NTor shared secret: {:?}",
-                client.get_shared_secret().unwrap_throw()
+                client.get_shared_secret().expect_throw(
+                    "Shared secret should be available after successful tunnel initialization"
+                )
             )
             .into(),
         );
