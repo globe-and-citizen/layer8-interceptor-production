@@ -7,14 +7,9 @@ pub async fn parse_form_data_to_array(
     boundary: String,
 ) -> Result<Vec<u8>, JsValue> {
     let body = extract_body(form, &boundary).await?;
-    let mut chunks = Uint8Array::new_with_length(0);
-
+    let mut chunks = Vec::new();
     for part in body {
-        let new_length = chunks.length() + part.length();
-        let temp = Uint8Array::new_with_length(new_length);
-        temp.set(&chunks, 0);
-        temp.set(&part, chunks.length());
-        chunks = temp;
+        chunks.extend_from_slice(&part.to_vec());
     }
 
     // Sample output:
@@ -79,6 +74,7 @@ async fn extract_body(form: web_sys::FormData, boundary: &str) -> Result<Vec<Uin
         let file_contents: Uint8Array = Uint8Array::new(&file_contents);
 
         let content_type = blob.type_();
+
         let chunk_str = format!(
             "{}; name=\"{}\"{}Content-Type: {}\r\n\r\n",
             prefix,

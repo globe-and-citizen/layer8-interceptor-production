@@ -26,7 +26,7 @@ pub trait HttpCaller: Clone {
 
 /// An marker implementation of `HttpCaller` that uses `reqwest::Client` to send requests.
 #[derive(Clone)]
-pub struct ActualHttpCaller;
+pub struct ActualHttpCaller; //in-mem there's no allocation
 
 impl HttpCaller for ActualHttpCaller {
     async fn send(self, request_builder: RequestBuilder) -> Result<HttpCallerResponse, Error> {
@@ -43,8 +43,8 @@ pub struct MockHttpCaller {
 
 impl HttpCaller for MockHttpCaller {
     async fn send(self, req_builder: RequestBuilder) -> Result<HttpCallerResponse, Error> {
-        let req = req_builder.build()?;
         if self.init {
+            let req = req_builder.build()?;
             let pub_key: [u8; 32] = {
                 #[derive(Deserialize)]
                 struct ExpectedRequest {
