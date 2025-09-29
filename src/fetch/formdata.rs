@@ -15,7 +15,7 @@ pub async fn parse_form_data_to_array(
     //
     //     Joe owes =80100.
     //     --AaB03x
-    Ok(extract_body(form, &boundary).await?)
+    extract_body(form, &boundary).await
 }
 
 // Ref: <https://github.com/nodejs/undici/blob/e39a6324c4474c6614cac98b8668e3d036aa6b18/lib/fetch/body.js#L31>
