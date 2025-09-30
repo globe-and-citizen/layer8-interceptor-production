@@ -1,2 +1,2 @@
 bench:
-	wasm-pack test --firefox --release 
+	wasm-pack test --chrome --release 

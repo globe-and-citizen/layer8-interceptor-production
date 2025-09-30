@@ -116,10 +116,8 @@ pub fn init_encrypted_tunnel(
     Ok(())
 }
 
-pub(crate) async fn get_network_state(
-    provider_url: &str,
-    dev_flag: bool,
-) -> Result<Rc<NetworkState>, JsValue> {
+pub(crate) async fn get_network_state(provider_url: &str) -> Result<Rc<NetworkState>, JsValue> {
+    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     loop {
         let network_state = NETWORK_STATE
             .with_borrow(|cache| cache.get(provider_url).map(Rc::clone))

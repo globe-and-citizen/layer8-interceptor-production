@@ -108,10 +108,6 @@ impl L8RequestObject {
         }
 
         if dev_flag {
-            console::log_1(&format!("Request URL: {}", uri).into());
-        }
-
-        if dev_flag {
             console::log_1(&format!("Resource URL: {}", uri).into());
         }
 
@@ -238,8 +234,8 @@ impl L8RequestObject {
         &self,
         network_state_open: &NetworkStateOpen,
         reinitialize_attempt: bool,
-        dev_flag: bool,
     ) -> Result<NetworkResponse, JsValue> {
+        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
@@ -404,7 +400,7 @@ pub async fn fetch(
     // we can limit the reinitializations to 2 per fetch call and +1 for the initial request
     let mut attempts = constants::REINIT_ATTEMPTS;
     loop {
-        let network_state = get_network_state(&backend_base_url, dev_flag).await?;
+        let network_state = get_network_state(&backend_base_url).await?;
         let network_state_open = match network_state.as_ref() {
             NetworkState::OPEN(state) => state,
             _ => {
@@ -416,9 +412,7 @@ pub async fn fetch(
             }
         };
 
-        let resp = req_object
-            .l8_send(network_state_open, attempts > 0, dev_flag)
-            .await?;
+        let resp = req_object.l8_send(network_state_open, attempts > 0).await?;
 
         // we decrement the attempts, incase we have reinitialized the network state
         attempts -= 1;
@@ -439,14 +433,19 @@ pub async fn fetch(
             }
 
             NetworkResponse::Reinitialize => {
+                let backend_url = format!(
+                    "{}/init-tunnel?backend_url={}",
+                    network_state_open.forward_proxy_url, backend_base_url
+                );
+
                 if dev_flag {
                     console::log_1(
-                        &format!("Reinitializing network state for {}", backend_base_url).into(),
+                        &format!("Reinitializing network state for {}", backend_url).into(),
                     );
                 }
 
                 // creating a new NetworkState and overwriting the existing one
-                let val = init_tunnel(backend_base_url.clone(), ActualHttpCaller).await?;
+                let val = init_tunnel(backend_url, ActualHttpCaller).await?;
                 let state = NetworkStateOpen {
                     http_client: reqwest::Client::new(),
                     init_tunnel_result: val.clone(),

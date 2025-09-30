@@ -143,6 +143,7 @@ async fn formdata_simple_bench() {
         });
     }
 
+    #[allow(clippy::useless_format)]
     web_sys::console::log_1(
         &format!("{}", serde_json::to_string(&benchmark_result).unwrap()).into(),
     );

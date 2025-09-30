@@ -51,9 +51,9 @@ jobs:
           default: true
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v1
-      - run: |
-          cargo fmt -- --check
-          cargo clippy --all-targets --all-features -- -Aclippy::style -Dclippy::perf -D warnings
+      - name: Test Format
+        run: cargo fmt -- --check
+      - run: cargo clippy --all-targets --all-features -- -Aclippy::style -Dclippy::perf -D warnings
     
   build: # make sure it build with wasm-pack
     runs-on: ubuntu-latest
