@@ -13,6 +13,7 @@ use crate::{
     http_call_indirection::{HttpCaller, HttpCallerResponse},
     network_state::DEV_FLAG,
 };
+use crate::constants::MAX_INIT_TUNNEL_ATTEMPTS;
 
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
@@ -45,27 +46,40 @@ impl Debug for InitTunnelResult {
     }
 }
 
+/// Establishes `init-tunnel` request to the backend server and performs NTor key exchange.
+/// # Arguments
+/// * `backend_url` - The `init-tunnel` endpoint of the target server (forward-proxy) includes reverse-proxy's url as a param
+/// (eg. https://fp.layer8.net/init-tunnel?backend_url=https://backendwithreverseproxy.layer8.net)
+/// * `http_caller` - An implementation of the `HttpCaller` trait to send HTTP requests (either real http call or mock test).
+/// # Returns
+/// * `InitTunnelResult` if success - Contains the NTor Client and JWT tokens for further communication.
+/// * Error if any step fails during the process:
+///     - Sending request to backend failed (after MAX_INIT_TUNNEL_ATTEMPTS retries)
+///     - Processing the response failed
+///     - NTor handshake failed
 pub async fn init_tunnel(
     backend_url: String,
     http_caller: impl HttpCaller,
 ) -> Result<InitTunnelResult, JsValue> {
     let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
-    let mut client = NTorClient::new();
 
+    // 1. Initialize NTor Client message
+    let mut client = NTorClient::new();
     let init_session_msg = client.initialise_session();
     let request_body = json!({
         "public_key": init_session_msg.public_key(),
     });
 
-    let mut count = 0;
+    // 2. Try to send the request to the backend up to MAX_INIT_TUNNEL_ATTEMPTS times
+    let mut init_tunnel_retry = 0;
     let response: HttpCallerResponse;
     loop {
-        count += 1;
+        init_tunnel_retry += 1;
 
         let req_builder = reqwest::Client::new()
             .post(backend_url.clone())
             .header("Content-Length", "application/json")
-            .header("Retry-count", count)
+            .header("Retry-count", init_tunnel_retry)
             .body(request_body.to_string());
 
         match http_caller.clone().send(req_builder).await {
@@ -73,24 +87,29 @@ pub async fn init_tunnel(
                 response = res;
                 break;
             }
+            // If it fails, log the error and retry after a short delay
             Err(err) => {
-                console::error_1(&format!("Request failed: {}. Attempt: {}", err, count).into());
+                if dev_flag {
+                    console::error_1(&format!("Request attempt {} failed: {}", init_tunnel_retry, err).into());
+                }
 
-                if count >= 3 {
+                if init_tunnel_retry >= MAX_INIT_TUNNEL_ATTEMPTS {
                     console::error_1(
-                        &format!("Failed to initialize tunnel after {} attempts", count).into(),
+                        &format!("Failed to initialize tunnel after {} attempts", init_tunnel_retry).into(),
                     );
                     return Err(JsValue::from_str(&format!(
                         "Failed to initialize tunnel after {} attempts: {}",
-                        count, err
+                        init_tunnel_retry, err
                     )));
                 }
+
                 // Wait for a short period (1s) before retrying
                 utils::sleep(1000).await;
             }
         };
     }
 
+    // 3. Process the response
     let response_bytes = match response.bytes().await {
         Ok(bytes) => bytes.to_vec(),
         Err(err) => {
@@ -108,6 +127,7 @@ pub async fn init_tunnel(
     let response_body = serde_json::from_slice::<InitTunnelResponse>(&response_bytes)
         .expect_throw("Failed to deserialize response body to InitTunnelResponse");
 
+    // 4. Complete NTor handshake
     let init_msg_response =
         InitSessionResponse::new(response_body.ephemeral_public_key, response_body.t_b_hash);
 
