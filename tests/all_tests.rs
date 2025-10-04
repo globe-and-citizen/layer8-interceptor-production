@@ -97,7 +97,9 @@ async fn formdata_simple_bench() {
 
             // Inline timing for async function
             let start = js_sys::Date::now();
-            parse_form_data_to_array(form_data, &boundary).await.unwrap();
+            parse_form_data_to_array(form_data, &boundary)
+                .await
+                .unwrap();
             let end = js_sys::Date::now();
             let duration = end - start; // milliseconds
 
