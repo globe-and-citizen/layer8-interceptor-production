@@ -7,7 +7,7 @@ use crate::{
     constants::SLEEP_DELAY,
     http_call_indirection::ActualHttpCaller,
     init_tunnel::{InitTunnelResult, init_tunnel},
-    utils,
+    utils::{self, base_url},
 };
 
 thread_local! {
@@ -58,7 +58,7 @@ impl ServiceProvider {
 /// This function initializes the encrypted tunnel for the given service providers using a background process, which updates
 /// the `NETWORK_STATE` global static.
 #[wasm_bindgen(js_name = "initEncryptedTunnel")]
-pub fn init_encrypted_tunnel(
+pub fn init_encrypted_tunnels(
     forward_proxy_url: String,
     service_providers: Vec<ServiceProvider>,
     dev_flag: Option<bool>,
@@ -144,17 +144,4 @@ pub(crate) async fn get_network_state(provider_url: &str) -> Result<Rc<NetworkSt
             }
         }
     }
-}
-
-pub(crate) fn base_url(url: &str) -> Result<String, JsValue> {
-    let url =
-        url::Url::parse(url).map_err(|e| JsValue::from_str(&format!("Invalid URL: {}", e)))?;
-
-    // get without query or path fragments
-    let mut base_url = format!("{}://{}", url.scheme(), url.host_str().unwrap_or_default());
-    if let Some(port) = url.port() {
-        base_url = format!("{}:{}", base_url, port);
-    }
-
-    Ok(base_url)
 }

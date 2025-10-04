@@ -15,8 +15,9 @@ use crate::fetch::{
 use crate::http_call_indirection::ActualHttpCaller;
 use crate::init_tunnel::init_tunnel;
 use crate::network_state::{
-    DEV_FLAG, NETWORK_STATE, NetworkState, NetworkStateOpen, base_url, get_network_state,
+    DEV_FLAG, NETWORK_STATE, NetworkState, NetworkStateOpen, get_network_state,
 };
+use crate::utils::base_url;
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -181,7 +182,7 @@ impl L8RequestObject {
 
                 Body::FormData(form_data) => {
                     let boundary = uuid::Uuid::new_v4().to_string();
-                    let data = parse_form_data_to_array(form_data, boundary.clone()).await?;
+                    let data = parse_form_data_to_array(form_data, &boundary).await?;
 
                     req_wrapper.headers.insert(
                         "Content-Type".to_string(),
