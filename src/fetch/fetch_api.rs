@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use ntor::common::NTorParty;
 use serde::{Deserialize, Serialize};
@@ -7,12 +7,17 @@ use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
 use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 
-use crate::fetch::WasmEncryptedMessage;
-
-use crate::fetch::{formdata::parse_form_data_to_array, req_properties::add_properties_to_request};
-use crate::network_state::{
-    NETWORK_STATE, NetworkReadyState, NetworkState, Version, base_url, schedule_init_event,
+use crate::constants;
+use crate::fetch::{
+    WasmEncryptedMessage, formdata::parse_form_data_to_array,
+    req_properties::add_properties_to_request,
 };
+use crate::http_call_indirection::ActualHttpCaller;
+use crate::init_tunnel::init_tunnel;
+use crate::network_state::{
+    DEV_FLAG, NETWORK_STATE, NetworkState, NetworkStateOpen, get_network_state,
+};
+use crate::utils::base_url;
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -83,15 +88,17 @@ pub enum NetworkResponse {
     // This is a successful response from the proxy server.
     ProviderResponse(web_sys::Response),
     // This is an indicator that we are reinitializing the connection
-    Reinitialize(Version),
+    Reinitialize,
 }
 
 impl L8RequestObject {
-    pub async fn new(
+    async fn new(
         backend_url: String,
         resource: JsValue,
         options: Option<RequestInit>,
     ) -> Result<Self, JsValue> {
+        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+
         // retrieve the uri
         let url = url::Url::parse(&backend_url)
             .map_err(|e| JsValue::from_str(&format!("Invalid URL: {}", e)))?;
@@ -101,7 +108,9 @@ impl L8RequestObject {
             uri.push_str(&format!("?{}", query));
         }
 
-        console::log_1(&format!("Request URI: {}", uri).into());
+        if dev_flag {
+            console::log_1(&format!("Resource URL: {}", uri).into());
+        }
 
         // using the Request object to fetch the resource
         if let Some(req) = resource.dyn_ref::<Request>() {
@@ -173,7 +182,7 @@ impl L8RequestObject {
 
                 Body::FormData(form_data) => {
                     let boundary = uuid::Uuid::new_v4().to_string();
-                    let data = parse_form_data_to_array(form_data, boundary.clone()).await?;
+                    let data = parse_form_data_to_array(form_data, &boundary).await?;
 
                     req_wrapper.headers.insert(
                         "Content-Type".to_string(),
@@ -222,18 +231,18 @@ impl L8RequestObject {
     /// Sends the request using the Layer8 network state.
     /// This method can recurse only once to retry sending the request if it fails.
     /// If the request fails again, it will return an error.
-    pub async fn l8_send(
+    async fn l8_send(
         &self,
-        base_url: &str,
-        network_state: &NetworkState,
+        network_state_open: &NetworkStateOpen,
         reinitialize_attempt: bool,
     ) -> Result<NetworkResponse, JsValue> {
+        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
 
         let msg = {
-            let (nonce, encrypted) = network_state
+            let (nonce, encrypted) = network_state_open
                 .init_tunnel_result
                 .client
                 .wasm_encrypt(data)
@@ -250,17 +259,17 @@ impl L8RequestObject {
             })?
         };
 
-        let mut req_builder = network_state
+        let mut req_builder = network_state_open
             .http_client
-            .post(format!("{}/proxy", network_state.forward_proxy_url))
+            .post(format!("{}/proxy", network_state_open.forward_proxy_url))
             .header("content-type", "application/json")
             .header(
                 "int_rp_jwt",
-                network_state.init_tunnel_result.int_rp_jwt.clone(),
+                network_state_open.init_tunnel_result.int_rp_jwt.clone(),
             )
             .header(
                 "int_fp_jwt",
-                network_state.init_tunnel_result.int_fp_jwt.clone(),
+                network_state_open.init_tunnel_result.int_fp_jwt.clone(),
             )
             .body(msg);
 
@@ -269,28 +278,17 @@ impl L8RequestObject {
         }
 
         let response_result = req_builder.send().await.inspect_err(|e| {
-            console::warn_1(&format!("Request failed with error: {}", e).into());
+            if dev_flag {
+                console::error_1(&format!("Request failed with error: {}", e).into());
+            }
         });
 
         let response = match response_result {
             Ok(resp) => resp,
             Err(err) => {
-                // error is caught before being propagated to the response
-                console::log_1(&format!("Request failed with error: {}", err).into());
-
                 // we can reinitialize the network state
                 if reinitialize_attempt {
-                    let new_version = network_state.version + 1;
-
-                    // schedule an init event for the next version
-                    schedule_init_event(
-                        &base_url,
-                        new_version,
-                        network_state.forward_proxy_url.clone(),
-                        network_state._dev_flag,
-                    )?;
-
-                    return Ok(NetworkResponse::Reinitialize(new_version));
+                    return Ok(NetworkResponse::Reinitialize);
                 }
 
                 return Err(JsValue::from_str(&format!(
@@ -302,30 +300,20 @@ impl L8RequestObject {
 
         // status >= 400
         if response.status() >= reqwest::StatusCode::BAD_REQUEST {
-            console::log_1(
-                &format!(
-                    "Received error response from the proxy server: {}",
-                    response.status()
-                )
-                .into(),
-            );
+            if dev_flag {
+                console::log_1(
+                    &format!(
+                        "Received error response from the proxy server: {}",
+                        response.status()
+                    )
+                    .into(),
+                );
+            }
 
             // we can reinitialize the network state
             if reinitialize_attempt {
-                let new_version = network_state.version + 1;
-
-                // schedule an init event for the next version
-                schedule_init_event(
-                    &base_url,
-                    new_version,
-                    network_state.forward_proxy_url.clone(),
-                    network_state._dev_flag,
-                )?;
-
-                return Ok(NetworkResponse::Reinitialize(new_version));
+                return Ok(NetworkResponse::Reinitialize);
             }
-
-            console::log_1(&"Unexpected response from the proxy server".into());
 
             return Ok(NetworkResponse::ProxyError(JsValue::from_str(&format!(
                 "Unexpected response from the proxy server: {}; With body: {}",
@@ -350,7 +338,7 @@ impl L8RequestObject {
                 ))
             })?;
 
-        let decrypted_response = network_state
+        let decrypted_response = network_state_open
             .init_tunnel_result
             .client
             .wasm_decrypt(encrypted_data.nonce, encrypted_data.data)
@@ -359,7 +347,9 @@ impl L8RequestObject {
         let l8_response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)
             .map_err(|e| JsValue::from_str(&format!("Failed to deserialize response: {}", e)))?;
 
-        console::log_1(&format!("Response: {:?}", l8_response).into());
+        if dev_flag {
+            console::log_1(&format!("Response: {:?}", l8_response).into());
+        }
 
         // convert L8ResponseObject to web_sys::Response
         let resp_init = ResponseInit::new();
@@ -393,35 +383,6 @@ impl L8RequestObject {
     }
 }
 
-async fn network_state_is_ready(backend_base_url: &str) -> Result<(), JsValue> {
-    loop {
-        match NetworkReadyState::ready_state(backend_base_url)? {
-            NetworkReadyState::CONNECTING(..) => {
-                console::warn_1(
-                    &format!(
-                        "Network is still connecting for {}. Please wait...",
-                        backend_base_url
-                    )
-                    .into(),
-                );
-                sleep(100).await; // Wait for 100 milliseconds before retrying
-                continue;
-            }
-            NetworkReadyState::OPEN(..) => {
-                break;
-            }
-            NetworkReadyState::CLOSED => {
-                return Err(JsValue::from_str(&format!(
-                    "Network is not ready for {}. Please call `await layer8.initialize_tunnel(..)` first.",
-                    backend_base_url
-                )));
-            }
-        }
-    }
-
-    Ok(())
-}
-
 /// This API is expected to be a 1:1 mapping of the Fetch API.
 /// Arguments:
 /// - `resource`: The resource to fetch, which can be a string, a URL object or a Request object.
@@ -431,43 +392,30 @@ pub async fn fetch(
     resource: JsValue,
     options: Option<RequestInit>,
 ) -> Result<web_sys::Response, JsValue> {
+    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     let backend_url = retrieve_resource_url(&resource)?;
     let backend_base_url = base_url(&backend_url)?;
-
-    // make sure that the network state is in a ready state
-    network_state_is_ready(&backend_base_url).await?;
-
-    let get_network_state = || -> Result<Arc<NetworkState>, JsValue> {
-        let network_state = NETWORK_STATE.with_borrow(|cache| {
-            let state = match cache.get(&backend_base_url) {
-                Some(state) => Arc::clone(state), // This is a reference clone; cannot do interior mutability
-                None => {
-                    let err = JsValue::from_str(&format!(
-                        "L8 network state for {} is not initialized. Please call `await layer8.initialize_tunnel(..)` first.",
-                        backend_base_url
-                    ));
-
-                    return Err(err);
-                }
-            };
-
-            Ok(state)
-        })?;
-
-        Ok(network_state)
-    };
 
     let req_object = L8RequestObject::new(backend_url, resource, options).await?;
 
     // we can limit the reinitializations to 2 per fetch call and +1 for the initial request
-    let mut attempts = 3;
-    let mut network_state = get_network_state()?;
+    let mut attempts = constants::REINIT_ATTEMPTS;
     loop {
-        let reinit_attempt = attempts > 0;
-        let resp = req_object
-            .l8_send(&backend_base_url, &network_state, reinit_attempt)
-            .await?;
+        let network_state = get_network_state(&backend_base_url).await?;
+        let network_state_open = match network_state.as_ref() {
+            NetworkState::OPEN(state) => state,
+            _ => {
+                // we expect the network state to be open or to have errored out when calling `get_network_state`, report as bug
+                return Err(JsValue::from_str(&format!(
+                    "Network state for {} is not open. Please report bug to l8 team.",
+                    backend_base_url
+                )));
+            }
+        };
 
+        let resp = req_object.l8_send(network_state_open, attempts > 0).await?;
+
+        // we decrement the attempts, incase we have reinitialized the network state
         attempts -= 1;
 
         match resp {
@@ -478,24 +426,36 @@ pub async fn fetch(
 
             NetworkResponse::ProxyError(err) => {
                 // If the response is an error, we have exhausted the reinitialization attempts
-                console::error_1(&err);
+                if dev_flag {
+                    console::error_1(&err);
+                }
+
                 return Err(err);
             }
 
-            NetworkResponse::Reinitialize(version) => {
-                console::log_1(
-                    &format!(
-                        "Reinitializing network state for {} with version {}",
-                        backend_base_url, version
-                    )
-                    .into(),
+            NetworkResponse::Reinitialize => {
+                let backend_url = format!(
+                    "{}/init-tunnel?backend_url={}",
+                    network_state_open.forward_proxy_url, backend_base_url
                 );
 
-                // make sure that the network state is in a ready state
-                network_state_is_ready(&backend_base_url).await?;
+                if dev_flag {
+                    console::log_1(
+                        &format!("Reinitializing network state for {}", backend_url).into(),
+                    );
+                }
 
-                // update the network state
-                network_state = get_network_state()?;
+                // creating a new NetworkState and overwriting the existing one
+                let val = init_tunnel(backend_url, ActualHttpCaller).await?;
+                let state = NetworkStateOpen {
+                    http_client: reqwest::Client::new(),
+                    init_tunnel_result: val.clone(),
+                    forward_proxy_url: network_state_open.forward_proxy_url.clone(),
+                };
+
+                NETWORK_STATE.with_borrow_mut(|cache| {
+                    cache.insert(backend_base_url.clone(), Rc::new(NetworkState::OPEN(state)));
+                });
             }
         }
     }
@@ -553,6 +513,8 @@ fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
 fn headers_to_reqwest_headers(
     js_headers: JsValue,
 ) -> Result<HashMap<String, serde_json::Value>, JsValue> {
+    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+
     // If the headers are undefined or null, we return an empty HeaderMap
     if js_headers.is_null() || js_headers.is_undefined() {
         return Ok(HashMap::new());
@@ -563,7 +525,9 @@ fn headers_to_reqwest_headers(
         return js_headers_to_reqwest_headers(headers);
     }
 
-    console::log_1(&format!("Headers typeof: {:?}", js_headers.js_typeof()).into());
+    if dev_flag {
+        console::log_1(&format!("Headers typeof: {:?}", js_headers.js_typeof()).into());
+    }
 
     // we can then check if the headers are an instance of js_sys::Object
     if !js_headers.is_object() {
@@ -749,6 +713,7 @@ async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
 
 // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/ReadableStreamDefaultReader/read#example_1_-_simple_example>
 async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec<u8>, JsValue> {
+    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     let reader = stream.get_reader();
     let reader = reader
         .dyn_ref::<web_sys::ReadableStreamDefaultReader>()
@@ -770,7 +735,10 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
 
         if done {
             // If done, we break from the loop and return the accumulated data.
-            console::log_1(&format!("Stream read completed with {} bytes", data.len()).into());
+            if dev_flag {
+                console::log_1(&format!("Stream read completed with {} bytes", data.len()).into());
+            }
+
             break;
         }
 
@@ -791,15 +759,4 @@ async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec
     // Release the reader lock
     reader.release_lock();
     Ok(data)
-}
-
-async fn sleep(delay: i32) {
-    let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {
-        _ = web_sys::window()
-            .unwrap()
-            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay);
-    };
-
-    let p = js_sys::Promise::new(&mut cb);
-    wasm_bindgen_futures::JsFuture::from(p).await.unwrap();
 }

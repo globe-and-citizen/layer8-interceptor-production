@@ -1,0 +1,9 @@
+formdata_simple_bench
+Size: 1MB            Average duration: 2.030000ms, Standard deviation: 1.633738ms, Best: 1.000000ms, Worst: 10.000000ms
+Size: 2MB            Average duration: 3.040000ms, Standard deviation: 1.933494ms, Best: 2.000000ms, Worst: 14.000000ms
+Size: 8MB            Average duration: 12.210000ms, Standard deviation: 15.572601ms, Best: 8.000000ms, Worst: 166.000000ms
+Size: 16MB           Average duration: 36.350000ms, Standard deviation: 34.594039ms, Best: 24.000000ms, Worst: 379.000000ms
+Size: 32MB           Average duration: 135.300000ms, Standard deviation: 140.930728ms, Best: 64.000000ms, Worst: 1530.000000ms
+
+init_tunnel_simple_bench
+Average: 1.30 ms, Std Dev: 0.46ms, Best: 1.00 ms, Worst: 4.00 ms

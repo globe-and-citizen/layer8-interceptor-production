@@ -1,38 +1,24 @@
 use js_sys::Uint8Array;
 use wasm_bindgen::{JsCast, JsValue};
 
-// Converts an instance of `web_sys::FormData` to a `Uint8Array`
+/// Converts an instance of `web_sys::FormData` to a `Uint8Array`
+///
+///  // Sample output:
+/// --AaB03x
+/// content-disposition: form-data; name="field1"
+/// content-type: text/plain;charset=windows-1250
+/// content-transfer-encoding: quoted-printable
+///
+/// Joe owes =80100.
+/// --AaB03x
+///
+/// Ref: <https://github.com/nodejs/undici/blob/e39a6324c4474c6614cac98b8668e3d036aa6b18/lib/fetch/body.js#L31>
 pub async fn parse_form_data_to_array(
     form: web_sys::FormData,
-    boundary: String,
+    boundary: &str,
 ) -> Result<Vec<u8>, JsValue> {
-    let body = extract_body(form, &boundary).await?;
-    let mut chunks = Uint8Array::new_with_length(0);
-
-    for part in body {
-        let new_length = chunks.length() + part.length();
-        let temp = Uint8Array::new_with_length(new_length);
-        temp.set(&chunks, 0);
-        temp.set(&part, chunks.length());
-        chunks = temp;
-    }
-
-    // Sample output:
-    //
-    //     --AaB03x
-    //     content-disposition: form-data; name="field1"
-    //     content-type: text/plain;charset=windows-1250
-    //     content-transfer-encoding: quoted-printable
-    //
-    //     Joe owes =80100.
-    //     --AaB03x
-    Ok(chunks.to_vec())
-}
-
-// Ref: <https://github.com/nodejs/undici/blob/e39a6324c4474c6614cac98b8668e3d036aa6b18/lib/fetch/body.js#L31>
-async fn extract_body(form: web_sys::FormData, boundary: &str) -> Result<Vec<Uint8Array>, JsValue> {
     let prefix = format!("--{}\r\nContent-Disposition: form-data", boundary);
-    let mut blob_parts: Vec<Uint8Array> = Vec::new();
+    let mut blob_parts = Vec::new();
     let rn = Uint8Array::from(&[13, 10][..]); // '\r\n'
 
     // for (const [name, value] of inputFormData)
@@ -53,8 +39,8 @@ async fn extract_body(form: web_sys::FormData, boundary: &str) -> Result<Vec<Uin
                 normalize_linefeeds(&value)
             );
 
-            let chunk = Uint8Array::from(chunk_str.as_bytes());
-            blob_parts.push(chunk);
+            let chunk = chunk_str.as_bytes();
+            blob_parts.extend_from_slice(chunk);
 
             continue;
         }
@@ -79,6 +65,7 @@ async fn extract_body(form: web_sys::FormData, boundary: &str) -> Result<Vec<Uin
         let file_contents: Uint8Array = Uint8Array::new(&file_contents);
 
         let content_type = blob.type_();
+
         let chunk_str = format!(
             "{}; name=\"{}\"{}Content-Type: {}\r\n\r\n",
             prefix,
@@ -91,14 +78,14 @@ async fn extract_body(form: web_sys::FormData, boundary: &str) -> Result<Vec<Uin
             content_type
         );
 
-        let chunk = Uint8Array::from(chunk_str.as_bytes());
-        blob_parts.push(chunk);
-        blob_parts.push(file_contents);
-        blob_parts.push(rn.clone());
+        let chunk = chunk_str.as_bytes();
+        blob_parts.extend_from_slice(chunk);
+        blob_parts.extend_from_slice(&file_contents.to_vec());
+        blob_parts.extend_from_slice(&rn.to_vec()); // \r\n
     }
 
-    let chunk = Uint8Array::from(format!("--{}--", boundary).as_bytes());
-    blob_parts.push(chunk);
+    let chunk = format!("--{}--", boundary);
+    blob_parts.extend_from_slice(chunk.as_bytes());
 
     Ok(blob_parts)
 }
@@ -108,6 +95,7 @@ fn escape(str: &str) -> String {
         .replace('\r', "%0D")
         .replace('"', "%22")
 }
+
 fn normalize_linefeeds(value: &str) -> String {
     value.replace("\r\n", "\n").replace('\r', "\n")
 }
