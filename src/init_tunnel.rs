@@ -8,12 +8,12 @@ use web_sys::console;
 use ntor::client::NTorClient;
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 
+use crate::constants::MAX_INIT_TUNNEL_ATTEMPTS;
 use crate::utils;
 use crate::{
     http_call_indirection::{HttpCaller, HttpCallerResponse},
     network_state::DEV_FLAG,
 };
-use crate::constants::MAX_INIT_TUNNEL_ATTEMPTS;
 
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
@@ -90,12 +90,18 @@ pub async fn init_tunnel(
             // If it fails, log the error and retry after a short delay
             Err(err) => {
                 if dev_flag {
-                    console::error_1(&format!("Request attempt {} failed: {}", init_tunnel_retry, err).into());
+                    console::error_1(
+                        &format!("Request attempt {} failed: {}", init_tunnel_retry, err).into(),
+                    );
                 }
 
                 if init_tunnel_retry >= MAX_INIT_TUNNEL_ATTEMPTS {
                     console::error_1(
-                        &format!("Failed to initialize tunnel after {} attempts", init_tunnel_retry).into(),
+                        &format!(
+                            "Failed to initialize tunnel after {} attempts",
+                            init_tunnel_retry
+                        )
+                        .into(),
                     );
                     return Err(JsValue::from_str(&format!(
                         "Failed to initialize tunnel after {} attempts: {}",
