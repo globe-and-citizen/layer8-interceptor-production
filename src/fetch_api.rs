@@ -4,8 +4,8 @@ use wasm_bindgen::prelude::*;
 use web_sys::{console, RequestInit};
 
 use crate::{constants, utils};
-use crate::fetch::request::L8RequestObject;
-use crate::fetch::NetworkResponse;
+use crate::types::request::L8RequestObject;
+use crate::types::NetworkResponse;
 use crate::types::http_call_indirection::ActualHttpCaller;
 use crate::init_tunnel::init_tunnel;
 use crate::types::network_state::{
