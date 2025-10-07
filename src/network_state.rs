@@ -5,9 +5,8 @@ use web_sys::console;
 
 use crate::{
     constants::SLEEP_DELAY,
-    http_call_indirection::ActualHttpCaller,
-    init_tunnel::{InitTunnelResult, init_tunnel},
-    utils::{self, base_url},
+    init_tunnel::{InitTunnelResult},
+    utils,
 };
 
 thread_local! {
@@ -44,7 +43,7 @@ pub(crate) struct NetworkStateOpen {
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct ServiceProvider {
-    url: String,
+    pub url: String,
     _options: Option<js_sys::Object>, // for now, options is just any object including empty
 }
 
@@ -53,67 +52,6 @@ impl ServiceProvider {
     pub fn new(url: String, _options: Option<js_sys::Object>) -> Self {
         ServiceProvider { url, _options }
     }
-}
-
-/// This function initializes the encrypted tunnel for the given service providers using a background process, which updates
-/// the `NETWORK_STATE` global static.
-#[wasm_bindgen(js_name = "initEncryptedTunnel")]
-pub fn init_encrypted_tunnels(
-    forward_proxy_url: String,
-    service_providers: Vec<ServiceProvider>,
-    dev_flag: Option<bool>,
-) -> Result<(), JsValue> {
-    if let Some(val) = dev_flag {
-        if val {
-            DEV_FLAG.with_borrow_mut(|flag| *flag = true);
-            console::log_1(&"Dev mode enabled".into());
-        }
-    }
-
-    for service_provider in service_providers {
-        // update the urls as connecting before scheduling the background task to initialize the tunnel
-        NETWORK_STATE.with_borrow_mut(|cache| {
-            cache.insert(
-                service_provider.url.clone(),
-                Rc::new(NetworkState::CONNECTING),
-            );
-        });
-
-        let base_url = base_url(&service_provider.url)?;
-        let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
-        let forward_proxy_url = forward_proxy_url.clone();
-
-        // schedule the background task to initialize the tunnel
-        wasm_bindgen_futures::spawn_local(async move {
-            match init_tunnel(backend_url, ActualHttpCaller).await {
-                Ok(val) => {
-                    if dev_flag.unwrap_or(false) {
-                        console::log_1(
-                            &format!("Tunnel initialized for {}", service_provider.url).into(),
-                        );
-                    }
-
-                    let state = NetworkStateOpen {
-                        http_client: reqwest::Client::new(),
-                        init_tunnel_result: val,
-                        forward_proxy_url: forward_proxy_url.clone(),
-                    };
-
-                    NETWORK_STATE.with_borrow_mut(|cache| {
-                        cache.insert(base_url, Rc::new(NetworkState::OPEN(state)));
-                    });
-                }
-
-                Err(err) => {
-                    NETWORK_STATE.with_borrow_mut(|cache| {
-                        cache.insert(base_url, Rc::new(NetworkState::ERRORED(err)));
-                    });
-                }
-            }
-        });
-    }
-
-    Ok(())
 }
 
 pub(crate) async fn get_network_state(provider_url: &str) -> Result<Rc<NetworkState>, JsValue> {
