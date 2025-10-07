@@ -7,7 +7,7 @@ use wasm_bindgen::{prelude::*, throw_str};
 use wasm_streams::ReadableStream;
 use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 
-use crate::constants;
+use crate::{constants, utils};
 use crate::fetch::{
     WasmEncryptedMessage, formdata::parse_form_data_to_array,
     req_properties::add_properties_to_request,
@@ -92,21 +92,16 @@ pub enum NetworkResponse {
 }
 
 impl L8RequestObject {
+    /// Creates a new L8RequestObject from the given resource or options.
     async fn new(
         backend_url: String,
         resource: JsValue,
         options: Option<RequestInit>,
-    ) -> Result<Self, JsValue> {
+    ) -> Result<Self, JsValue>
+    {
         let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
 
-        // retrieve the uri
-        let url = url::Url::parse(&backend_url)
-            .map_err(|e| JsValue::from_str(&format!("Invalid URL: {}", e)))?;
-
-        let mut uri = url.path().to_string();
-        if let Some(query) = url.query() {
-            uri.push_str(&format!("?{}", query));
-        }
+        let uri = utils::get_uri(&backend_url)?;
 
         if dev_flag {
             console::log_1(&format!("Resource URL: {}", uri).into());
@@ -114,21 +109,7 @@ impl L8RequestObject {
 
         // using the Request object to fetch the resource
         if let Some(req) = resource.dyn_ref::<Request>() {
-            let mut req_wrapper = L8RequestObject {
-                method: req.method().to_string().trim().to_uppercase(),
-                uri,
-                ..Default::default()
-            };
-
-            if let Some(readable_stream) = req.body() {
-                req_wrapper.body = readable_stream_to_bytes(readable_stream)
-                    .await
-                    .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?;
-            };
-
-            req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
-            req_wrapper.mode = Some(Mode::Cors); // Default mode for Request objects
-            return Ok(req_wrapper);
+            return Self::from_web_sys_request_object(uri.clone(), req).await;
         }
 
         let options = match options {
@@ -143,9 +124,13 @@ impl L8RequestObject {
             }
         };
 
+        return Self::from_request_options(uri, options).await;
+    }
+
+    async fn from_request_options(mut uri: String, options: RequestInit) -> Result<Self, JsValue> {
         // Using the resource URL and options object to fetch the resource
         let mut req_wrapper = L8RequestObject {
-            uri,
+            uri: uri.clone(),
             ..Default::default()
         };
 
@@ -174,10 +159,9 @@ impl L8RequestObject {
                         .join("&");
 
                     // reconstruct the uri
-                    let mut uri = url.path().to_string();
                     uri.push_str(&format!("?{}", query));
 
-                    req_wrapper.uri = uri;
+                    req_wrapper.uri = uri.to_string();
                 }
 
                 Body::FormData(form_data) => {
@@ -190,7 +174,7 @@ impl L8RequestObject {
                             "multipart/form-data; boundary={}",
                             boundary
                         ))
-                        .expect_throw("a valid string is JSON serializable"),
+                            .expect_throw("a valid string is JSON serializable"),
                     );
 
                     req_wrapper.body = data;
@@ -228,6 +212,30 @@ impl L8RequestObject {
         Ok(req_wrapper)
     }
 
+    async fn from_web_sys_request_object(uri: String, req: &Request) -> Result<Self, JsValue> {
+        let mut req_wrapper = L8RequestObject {
+            method: req.method().to_string().trim().to_uppercase(),
+            uri,
+            ..Default::default()
+        };
+
+        // The body itself is always represented as a ReadableStream if present, not other types.
+        if let Some(readable_stream) = req.body() {
+            // Converting a ReadableStream to bytes is needed because HTTP request bodies
+            // must be sent as raw data (e.g. Vec<u8>) rather than as a stream object.
+            // This allows the request to be serialized, encrypted, or processed before transmission.
+            // In Rust and WASM, you cannot directly use a JS ReadableStream as a request body;
+            // you must read all its chunks and accumulate them into a byte array for further handling.
+            req_wrapper.body = readable_stream_to_bytes(readable_stream)
+                .await
+                .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?;
+        };
+
+        req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
+        req_wrapper.mode = Some(Mode::Cors); // Default mode for Request objects
+        return Ok(req_wrapper);
+    }
+
     /// Sends the request using the Layer8 network state.
     /// This method can recurse only once to retry sending the request if it fails.
     /// If the request fails again, it will return an error.
@@ -235,7 +243,8 @@ impl L8RequestObject {
         &self,
         network_state_open: &NetworkStateOpen,
         reinitialize_attempt: bool,
-    ) -> Result<NetworkResponse, JsValue> {
+    ) -> Result<NetworkResponse, JsValue>
+    {
         let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
@@ -254,9 +263,9 @@ impl L8RequestObject {
                 nonce: nonce.to_vec(),
                 data: encrypted,
             })
-            .map_err(|e| {
-                JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e))
-            })?
+                .map_err(|e| {
+                    JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e))
+                })?
         };
 
         let mut req_builder = network_state_open
@@ -283,31 +292,34 @@ impl L8RequestObject {
             }
         });
 
-        let response = match response_result {
-            Ok(resp) => resp,
+        return match response_result {
+            Ok(resp) => Self::handle_response(network_state_open, reinitialize_attempt, resp).await,
             Err(err) => {
                 // we can reinitialize the network state
                 if reinitialize_attempt {
                     return Ok(NetworkResponse::Reinitialize);
                 }
 
-                return Err(JsValue::from_str(&format!(
+                Err(JsValue::from_str(&format!(
                     "Failed to send request: {}",
                     err
-                )));
+                )))
             }
         };
+    }
+
+    async fn handle_response(
+        network_state_open: &NetworkStateOpen,
+        reinitialize_attempt: bool,
+        response: reqwest::Response,
+    ) -> Result<NetworkResponse, JsValue>
+    {
+        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
 
         // status >= 400
         if response.status() >= reqwest::StatusCode::BAD_REQUEST {
             if dev_flag {
-                console::log_1(
-                    &format!(
-                        "Received error response from the proxy server: {}",
-                        response.status()
-                    )
-                    .into(),
-                );
+                console::log_1(&format!("Received error response from the proxy server: {}", response.status()).into());
             }
 
             // we can reinitialize the network state
@@ -391,7 +403,8 @@ impl L8RequestObject {
 pub async fn fetch(
     resource: JsValue,
     options: Option<RequestInit>,
-) -> Result<web_sys::Response, JsValue> {
+) -> Result<web_sys::Response, JsValue>
+{
     let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     let backend_url = retrieve_resource_url(&resource)?;
     let backend_base_url = base_url(&backend_url)?;
@@ -712,6 +725,9 @@ async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
 }
 
 // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/ReadableStreamDefaultReader/read#example_1_-_simple_example>
+/// Converts a ReadableStream to a byte vector by reading all chunks from the stream.
+/// This function reads the stream until it is done and accumulates the data into a Vec<u8>.
+///
 async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec<u8>, JsValue> {
     let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     let reader = stream.get_reader();

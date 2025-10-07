@@ -23,3 +23,14 @@ pub(crate) fn base_url(url: &str) -> Result<String, JsValue> {
 
     Ok(base_url)
 }
+
+pub(crate) fn get_uri(url: &str) -> Result<String, JsValue> {
+    let url_object = url::Url::parse(&url)
+        .map_err(|e| JsValue::from_str(&format!("Invalid URL: {}", e)))?;
+
+    let mut uri = url_object.path().to_string();
+    if let Some(query) = url_object.query() {
+        uri.push_str(&format!("?{}", query));
+    }
+    Ok(uri)
+}
