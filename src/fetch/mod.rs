@@ -2,7 +2,6 @@ use wasm_bindgen::JsValue;
 use serde::{Deserialize, Serialize};
 
 pub mod fetch_api;
-mod req_properties;
 mod request;
 mod response;
 

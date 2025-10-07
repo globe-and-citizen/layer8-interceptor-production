@@ -2,10 +2,10 @@ use wasm_bindgen::{JsCast, JsValue, throw_str, UnwrapThrowExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use ntor::common::NTorParty;
+use web_sys::{ReferrerPolicy, RequestMode};
 use web_sys::{AbortSignal, console, Request, RequestInit, ResponseInit};
 use crate::fetch::response::L8ResponseObject;
 use crate::fetch::{Mode, NetworkResponse};
-use crate::fetch::req_properties::add_properties_to_request;
 use crate::types::{
     Body,
     network_state::{DEV_FLAG, NetworkStateOpen},
@@ -160,7 +160,7 @@ impl L8RequestObject {
         }
 
         // add properties to the request object
-        add_properties_to_request(&mut req_wrapper, &options);
+        req_wrapper.add_properties(&options);
 
         Ok(req_wrapper)
     }
@@ -345,5 +345,103 @@ impl L8RequestObject {
                 ));
             }
         }
+    }
+
+    // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/Request>
+    pub fn add_properties(&mut self, options: &web_sys::RequestInit) {
+        // body used
+        self.body_used = false; // default value
+
+        // cache
+        self.cache = js_sys::Reflect::get(&options, &"cache".into())
+            .ok()
+            .and_then(|val| val.as_string())
+            .unwrap_or_else(|| "default".to_string()); // "default" — The browser looks for a matching request in its HTTP cache.
+
+        // credentials
+        self.credentials = js_sys::Reflect::get(&options, &"credentials".into())
+            .ok()
+            .and_then(|val| val.as_string())
+            .unwrap_or_else(|| "same-origin".to_string()); // "same-origin" — The browser includes credentials in the request if the URL is on the same origin as the calling script.
+
+        // destination
+        self.destination = js_sys::Reflect::get(&options, &"destination".into())
+            .ok()
+            .and_then(|val| val.as_string())
+            .unwrap_or_else(|| "".to_string()); // "" — The request does not have a specific destination.
+
+        // integrity
+        self.integrity = js_sys::Reflect::get(&options, &"integrity".into())
+            .ok()
+            .and_then(|val| val.as_string())
+            .unwrap_or_else(|| "".to_string()); // "" — The request does not have an integrity value.
+
+        // is_history_navigation
+        self.is_history_navigation =
+            js_sys::Reflect::get(&options, &"isHistoryNavigation".into())
+                .ok()
+                .and_then(|val| val.as_bool())
+                .unwrap_or(false); // false — The request is not a history navigation.
+
+        // keepalive
+        _ = js_sys::Reflect::get(&options, &"keepalive".into())
+            .and_then(|val| val.as_bool().ok_or(JsValue::NULL))
+            .inspect(|v| self.keep_alive = Some(*v));
+
+        // mode
+        self.mode = match options.get_mode() {
+            Some(RequestMode::SameOrigin) => Some(Mode::SameOrigin),
+            Some(RequestMode::NoCors) => Some(Mode::NoCors),
+            Some(RequestMode::Cors) => Some(Mode::Cors),
+            Some(RequestMode::Navigate) => Some(Mode::Navigate),
+            _ => Some(Mode::Cors),
+        };
+
+        // redirect
+        _ = js_sys::Reflect::get(&options, &"redirect".into()).inspect(|v| {
+            let val = v.as_string().unwrap_or_else(|| "follow".to_string());
+            self.redirect = Some(val);
+        });
+
+        // referrer policy
+        let mut referrer_policy = "";
+        if let Some(referrer_policy_) = options.get_referrer_policy() {
+            referrer_policy = match referrer_policy_ {
+                ReferrerPolicy::NoReferrer => "no-referrer",
+                ReferrerPolicy::NoReferrerWhenDowngrade => "no-referrer-when-downgrade",
+                ReferrerPolicy::Origin => "origin",
+                ReferrerPolicy::OriginWhenCrossOrigin => "origin-when-cross-origin",
+                ReferrerPolicy::UnsafeUrl => "unsafe-url",
+                ReferrerPolicy::SameOrigin => "same-origin",
+                ReferrerPolicy::StrictOrigin => "strict-origin",
+                ReferrerPolicy::StrictOriginWhenCrossOrigin => "strict-origin-when-cross-origin",
+                _ => "",
+            };
+        }
+
+        if !referrer_policy.is_empty() {
+            self.headers.insert(
+                "Referrer-Policy".to_string(),
+                serde_json::to_value(&referrer_policy).expect_throw(
+                    "we expect the referrer policy to be a valid string that can be JSON serialized",
+                ),
+            );
+        }
+
+        // referrer
+        if referrer_policy != "no-referrer" {
+            // If the referrer policy is not "no-referrer", we can set the referrer header.
+            if let Some(referrer) = options.get_referrer() {
+                self.headers.insert(
+                    "Referrer".to_string(),
+                    serde_json::to_value(&referrer).expect_throw(
+                        "we expect the referrer to be a valid string that can be JSON serialized",
+                    ),
+                );
+            }
+        }
+
+        // signal
+        self.signal = options.get_signal();
     }
 }
