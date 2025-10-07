@@ -4,20 +4,20 @@ use std::rc::Rc;
 use ntor::common::NTorParty;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{prelude::*, throw_str};
-use wasm_streams::ReadableStream;
-use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
+use web_sys::{AbortSignal, console, Request, RequestInit, ResponseInit};
 
 use crate::{constants, utils};
 use crate::fetch::{
-    WasmEncryptedMessage, formdata::parse_form_data_to_array,
     req_properties::add_properties_to_request,
+    WasmEncryptedMessage,
 };
 use crate::types::http_call_indirection::ActualHttpCaller;
 use crate::init_tunnel::init_tunnel;
+use crate::types::Body;
 use crate::types::network_state::{
-    DEV_FLAG, NETWORK_STATE, NetworkState, NetworkStateOpen, get_network_state,
+    DEV_FLAG, get_network_state, NETWORK_STATE, NetworkState, NetworkStateOpen,
 };
-use crate::utils::base_url;
+use crate::utils::{get_base_url, parse_form_data_to_array};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -141,7 +141,7 @@ impl L8RequestObject {
 
         let body = options.get_body();
         if !body.is_undefined() && !body.is_null() {
-            let body = parse_js_request_body(body).await.map_err(|e| {
+            let body = utils::parse_js_request_body(body).await.map_err(|e| {
                 JsValue::from_str(&format!(
                     "Failed to parse request body: {}",
                     e.as_string().unwrap_or_else(|| "Unknown error".to_string())
@@ -194,7 +194,7 @@ impl L8RequestObject {
 
                 Body::Stream(stream) => {
                     // Convert ReadableStream to bytes
-                    let bytes = readable_stream_to_bytes(stream.into_raw()).await?;
+                    let bytes = utils::readable_stream_to_bytes(stream.into_raw()).await?;
                     req_wrapper.body = bytes;
                 }
             }
@@ -202,7 +202,7 @@ impl L8RequestObject {
 
         let raw_headers = options.get_headers();
         if !raw_headers.is_undefined() && !raw_headers.is_null() {
-            let headers = headers_to_reqwest_headers(raw_headers)?;
+            let headers = utils::headers_to_reqwest_headers(raw_headers)?;
             req_wrapper.headers.extend(headers);
         }
 
@@ -226,12 +226,12 @@ impl L8RequestObject {
             // This allows the request to be serialized, encrypted, or processed before transmission.
             // In Rust and WASM, you cannot directly use a JS ReadableStream as a request body;
             // you must read all its chunks and accumulate them into a byte array for further handling.
-            req_wrapper.body = readable_stream_to_bytes(readable_stream)
+            req_wrapper.body = utils::readable_stream_to_bytes(readable_stream)
                 .await
                 .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?;
         };
 
-        req_wrapper.headers = headers_to_reqwest_headers(JsValue::from(req.headers()))?;
+        req_wrapper.headers = utils::headers_to_reqwest_headers(JsValue::from(req.headers()))?;
         req_wrapper.mode = Some(Mode::Cors); // Default mode for Request objects
         return Ok(req_wrapper);
     }
@@ -406,8 +406,8 @@ pub async fn fetch(
 ) -> Result<web_sys::Response, JsValue>
 {
     let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
-    let backend_url = retrieve_resource_url(&resource)?;
-    let backend_base_url = base_url(&backend_url)?;
+    let backend_url = utils::retrieve_resource_url(&resource)?;
+    let backend_base_url = get_base_url(&backend_url)?;
 
     let req_object = L8RequestObject::new(backend_url, resource, options).await?;
 
@@ -472,307 +472,4 @@ pub async fn fetch(
             }
         }
     }
-}
-
-// returns the URL of the resource to be fetched
-fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
-    let mut resource_url = String::new();
-    if resource.is_string() {
-        resource_url = resource
-            .as_string()
-            .expect_throw("Expected resource to be a string");
-    }
-
-    // If the resource is a URL object, we return it stringified.
-    if resource.is_instance_of::<web_sys::Url>() {
-        return Ok(String::from(
-            resource
-                .dyn_ref::<web_sys::Url>()
-                .expect_throw("Expected resource to be a web_sys::Url")
-                .to_string(),
-        ));
-    }
-
-    if resource.is_instance_of::<web_sys::Request>() {
-        resource_url = resource
-            .dyn_ref::<web_sys::Request>()
-            .expect_throw("Expected resource to be a web_sys::Request")
-            .url();
-    }
-
-    if resource_url.is_empty() {
-        return Err(JsValue::from_str(&format!(
-            "Invalid resource type for fetch. Expected a string, URL object, or Request object. Got: {:?}",
-            resource.js_typeof(),
-        )));
-    }
-
-    // validate the URL from string and Request object
-    if let Err(err) = web_sys::Url::new(&resource_url) {
-        // If the URL is invalid, we throw an error with the details.
-        return Err(JsValue::from_str(&format!(
-            "Invalid URL: {}. Error: {}",
-            resource_url,
-            err.as_string()
-                .unwrap_or_else(|| "Unknown error".to_string())
-        )));
-    }
-
-    Ok(resource_url)
-}
-
-// Ref <https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#setting_headers>
-// we expect the headers to be either Headers or an Object
-fn headers_to_reqwest_headers(
-    js_headers: JsValue,
-) -> Result<HashMap<String, serde_json::Value>, JsValue> {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
-
-    // If the headers are undefined or null, we return an empty HeaderMap
-    if js_headers.is_null() || js_headers.is_undefined() {
-        return Ok(HashMap::new());
-    }
-
-    // We first check if the headers are an instance of web_sys::Headers
-    if let Some(headers) = js_headers.dyn_ref::<web_sys::Headers>() {
-        return js_headers_to_reqwest_headers(headers);
-    }
-
-    if dev_flag {
-        console::log_1(&format!("Headers typeof: {:?}", js_headers.js_typeof()).into());
-    }
-
-    // we can then check if the headers are an instance of js_sys::Object
-    if !js_headers.is_object() {
-        return Err(JsValue::from_str(
-            "Invalid headers type. Expected Headers or Object.",
-        ));
-    }
-
-    let headers = js_headers
-        .dyn_ref::<js_sys::Object>()
-        .expect_throw("Expected headers to be a js_sys::Object");
-
-    // In some cases the headers might be a web_sys::Headers object; this is the case for Request objects.
-    if let Some(headers) = headers.dyn_ref::<web_sys::Headers>() {
-        // If the headers are a web_sys::Headers object, we can convert them directly
-        return js_headers_to_reqwest_headers(headers);
-    }
-
-    // [key, value] item array
-    let entries = js_sys::Object::entries(headers);
-    let mut reqwest_headers = HashMap::new();
-    for entry in entries.iter() {
-        // [key, value] item array
-        let key_value_entry = js_sys::Array::from(&entry);
-        let key = key_value_entry.get(0);
-        let value = key_value_entry.get(1);
-        if key.is_null() || key.is_undefined() || !key.is_string() {
-            continue;
-        }
-
-        // Convert the key and value to reqwest's HeaderName and HeaderValue
-        let header_name = key
-            .as_string()
-            .expect_throw("Expected header name to be a string");
-
-        let header_value = serde_wasm_bindgen::from_value(value)
-            .map_err(|e| JsValue::from_str(&format!("Failed to convert header value: {}", e)))?;
-
-        reqwest_headers.insert(header_name, header_value);
-    }
-
-    Ok(reqwest_headers)
-}
-
-fn js_headers_to_reqwest_headers(
-    headers: &web_sys::Headers,
-) -> Result<HashMap<String, serde_json::Value>, JsValue> {
-    let mut reqwest_headers = HashMap::new();
-    for entry in headers.entries() {
-        // [key, value] item array
-        let key_value_entry = js_sys::Array::from(&entry?);
-        let key = key_value_entry.get(0);
-        let value = key_value_entry.get(1);
-
-        // Convert the key and value to reqwest's HeaderName and HeaderValue
-        let header_name = key
-            .as_string()
-            .expect_throw("Expected header name to be a string");
-
-        let header_value = serde_wasm_bindgen::from_value(value)
-            .map_err(|e| JsValue::from_str(&format!("Failed to convert header value: {}", e)))?;
-
-        reqwest_headers.insert(header_name, header_value);
-    }
-
-    Ok(reqwest_headers)
-}
-
-enum Body {
-    Bytes(Vec<u8>),
-    Stream(wasm_streams::ReadableStream),
-    Params(HashMap<String, String>),
-    FormData(web_sys::FormData),
-    #[allow(dead_code)]
-    File(web_sys::File),
-}
-
-// Converts a Javascript request body to a reqwest Body type.
-// Ref: <https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#setting_a_body>
-async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
-    // You can supply the body as an instance of any of the following types:
-    // a string
-    // ArrayBuffer
-    // TypedArray
-    // DataView
-    // Blob
-    // File
-    // URLSearchParams
-    // FormData
-    // ReadableStream
-
-    // a string
-    if body.is_string() {
-        return Ok(Body::Bytes(
-            body.as_string()
-                .expect_throw("Expected body to be a string")
-                .into_bytes(),
-        ));
-    }
-
-    // ArrayBuffer
-    if let Some(val) = body.dyn_ref::<js_sys::ArrayBuffer>() {
-        let uint8_array = js_sys::Uint8Array::new(val);
-        return Ok(Body::Bytes(uint8_array.to_vec()));
-    }
-
-    // *TypedArray, todo
-
-    // DataView
-    if let Some(val) = body.dyn_ref::<js_sys::DataView>() {
-        let uint8_array = js_sys::Uint8Array::new(&val.buffer());
-        return Ok(Body::Bytes(uint8_array.to_vec()));
-    }
-
-    // Blob
-    if let Some(val) = body.dyn_ref::<web_sys::Blob>() {
-        let readable_stream = val.stream();
-        let body = ReadableStream::from_raw(readable_stream);
-        return Ok(Body::Stream(body));
-    }
-
-    // File
-    if body.is_instance_of::<web_sys::File>() {
-        let val = body
-            .dyn_into::<web_sys::File>()
-            .expect_throw("Expected body to be a web_sys::File");
-        let readable_stream = val.stream();
-        let body = ReadableStream::from_raw(readable_stream);
-        return Ok(Body::Stream(body));
-    }
-
-    // URLSearchParams
-    if let Some(val) = body.dyn_ref::<web_sys::UrlSearchParams>() {
-        let mut params = HashMap::new();
-        for entry in val.entries() {
-            // [key, value] item array
-            let key_value_entry = js_sys::Array::from(
-                &entry.expect_throw("Expected entry to be a valid URLSearchParams entry"),
-            );
-            let key = key_value_entry
-                .get(0)
-                .as_string()
-                .expect_throw("Expected key in URLSearchParams key entry to be a string");
-            let value = key_value_entry
-                .get(1)
-                .as_string()
-                .expect_throw("Expected value in URLSearchParams value entry to be a string");
-            params.insert(key, value);
-        }
-        return Ok(Body::Params(params));
-    }
-
-    // FormData
-    if body.is_instance_of::<web_sys::FormData>() {
-        let val = body
-            .dyn_into::<web_sys::FormData>()
-            .expect_throw("Expected body to be a web_sys::FormData");
-
-        return Ok(Body::FormData(val));
-    }
-
-    // ReadableStream
-    if body.is_instance_of::<web_sys::ReadableStream>() {
-        let readable_stream = body
-            .dyn_into::<web_sys::ReadableStream>()
-            .expect_throw("Expected body to be a web_sys::ReadableStream");
-        let body = ReadableStream::from_raw(readable_stream);
-        return Ok(Body::Stream(body));
-    }
-
-    // Other objects are converted to strings using their toString() method.
-    if let Some(val) = body.dyn_ref::<js_sys::Object>() {
-        let val = js_sys::Object::to_string(val)
-            .as_string()
-            .expect_throw("Expected body to be a string representation of an object");
-        return Ok(Body::Bytes(val.into_bytes()));
-    }
-
-    Err(JsValue::from_str(
-        "Invalid body type for fetch. Expected a string, ArrayBuffer, TypedArray, DataView, Blob, File, URLSearchParams, FormData, or ReadableStream.",
-    ))
-}
-
-// Ref: <https://developer.mozilla.org/en-US/docs/Web/API/ReadableStreamDefaultReader/read#example_1_-_simple_example>
-/// Converts a ReadableStream to a byte vector by reading all chunks from the stream.
-/// This function reads the stream until it is done and accumulates the data into a Vec<u8>.
-///
-async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec<u8>, JsValue> {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
-    let reader = stream.get_reader();
-    let reader = reader
-        .dyn_ref::<web_sys::ReadableStreamDefaultReader>()
-        .expect_throw("Expected ReadableStreamDefaultReader, already checked");
-
-    let mut data = Vec::new();
-    loop {
-        // { done, value }
-        // done  - true if the stream has already given you all its data.
-        // value - some data. Always undefined when done is true.
-        let object = wasm_bindgen_futures::JsFuture::from(reader.read()).await?;
-
-        let done = js_sys::Reflect::get(&object, &"done".into())
-            .expect_throw("Expected 'done' property in ReadableStreamDefaultReader.read() result")
-            .as_bool()
-            .expect_throw(
-                "Expected 'done' property to be a boolean in ReadableStreamDefaultReader.read() result",
-            );
-
-        if done {
-            // If done, we break from the loop and return the accumulated data.
-            if dev_flag {
-                console::log_1(&format!("Stream read completed with {} bytes", data.len()).into());
-            }
-
-            break;
-        }
-
-        // value for fetch streams is a Uint8Array
-        let value = js_sys::Reflect::get(&object, &"value".into())
-            .expect_throw(
-                "Expected 'value' property in ReadableStreamDefaultReader.read() result",
-            )
-            .dyn_into::<js_sys::Uint8Array>()
-            .expect_throw(
-                "Expected 'value' property to be a Uint8Array in ReadableStreamDefaultReader.read() result",
-            )
-            .to_vec();
-
-        data.extend_from_slice(&value);
-    }
-
-    // Release the reader lock
-    reader.release_lock();
-    Ok(data)
 }

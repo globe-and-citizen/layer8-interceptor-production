@@ -2,13 +2,14 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 use {
     layer8_interceptor_production::{
-        fetch::formdata::parse_form_data_to_array, types::http_call_indirection::MockHttpCaller,
         init_tunnel::init_tunnel,
+        types::http_call_indirection::MockHttpCaller,
     },
     uuid::Uuid,
     wasm_bindgen_test::*,
-    web_sys::{FormData, console},
+    web_sys::{console, FormData},
 };
+use layer8_interceptor_production::utils::parse_form_data_to_array;
 
 const MB: u32 = 1024 * 1024; // 1 MB in bytes
 

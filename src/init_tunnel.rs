@@ -15,7 +15,7 @@ use crate::types::{
     http_call_indirection::{HttpCaller, HttpCallerResponse, ActualHttpCaller},
     network_state::{NETWORK_STATE, DEV_FLAG, NetworkState, NetworkStateOpen, ServiceProvider},
 };
-use crate::utils::base_url;
+use crate::utils::get_base_url;
 
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
@@ -194,7 +194,7 @@ pub fn init_encrypted_tunnels(
             );
         });
 
-        let base_url = base_url(&service_provider.url)?;
+        let base_url = get_base_url(&service_provider.url)?;
         let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
         let forward_proxy_url = forward_proxy_url.clone();
 
