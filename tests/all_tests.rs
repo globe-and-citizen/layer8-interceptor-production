@@ -2,7 +2,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 use {
     layer8_interceptor_production::{
-        fetch::formdata::parse_form_data_to_array, http_call_indirection::MockHttpCaller,
+        fetch::formdata::parse_form_data_to_array, types::http_call_indirection::MockHttpCaller,
         init_tunnel::init_tunnel,
     },
     uuid::Uuid,

@@ -12,9 +12,9 @@ use crate::fetch::{
     WasmEncryptedMessage, formdata::parse_form_data_to_array,
     req_properties::add_properties_to_request,
 };
-use crate::http_call_indirection::ActualHttpCaller;
+use crate::types::http_call_indirection::ActualHttpCaller;
 use crate::init_tunnel::init_tunnel;
-use crate::network_state::{
+use crate::types::network_state::{
     DEV_FLAG, NETWORK_STATE, NetworkState, NetworkStateOpen, get_network_state,
 };
 use crate::utils::base_url;

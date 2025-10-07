@@ -11,12 +11,10 @@ use std::rc::Rc;
 
 use crate::constants::MAX_INIT_TUNNEL_ATTEMPTS;
 use crate::utils;
-use crate::{
-    http_call_indirection::{HttpCaller, HttpCallerResponse},
-    network_state::DEV_FLAG,
+use crate::types::{
+    http_call_indirection::{HttpCaller, HttpCallerResponse, ActualHttpCaller},
+    network_state::{NETWORK_STATE, DEV_FLAG, NetworkState, NetworkStateOpen, ServiceProvider},
 };
-use crate::http_call_indirection::ActualHttpCaller;
-use crate::network_state::{NETWORK_STATE, NetworkState, NetworkStateOpen, ServiceProvider};
 use crate::utils::base_url;
 
 #[derive(Clone)]
