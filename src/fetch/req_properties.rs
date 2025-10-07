@@ -1,7 +1,8 @@
 use wasm_bindgen::{JsValue, UnwrapThrowExt};
 use web_sys::{ReferrerPolicy, RequestMode};
 
-use crate::fetch::fetch_api::{L8RequestObject, Mode};
+use crate::fetch::Mode;
+use crate::fetch::request::L8RequestObject;
 
 // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/Request>
 pub fn add_properties_to_request(
