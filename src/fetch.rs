@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use wasm_bindgen::prelude::*;
 use web_sys::{console, RequestInit};
 
@@ -9,8 +7,7 @@ use crate::types::network_state::NetworkStateResponse;
 use crate::types::http_caller::ActualHttpCaller;
 use crate::init_tunnel::init_tunnel;
 use crate::types::network_state::{NetworkState, NetworkStateOpen};
-use crate::utils::get_base_url;
-use crate::storage::{DEV_FLAG, NETWORK_STATE_MAP, get_network_state};
+use crate::storage::InMemoryCache;
 
 /// This API is expected to be a 1:1 mapping of the Fetch API.
 /// Arguments:
@@ -22,16 +19,17 @@ pub async fn fetch(
     options: Option<RequestInit>,
 ) -> Result<web_sys::Response, JsValue>
 {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+    let dev_flag = InMemoryCache::get_dev_flag();
     let backend_url = utils::retrieve_resource_url(&resource)?;
-    let backend_base_url = get_base_url(&backend_url)?;
+    let backend_base_url = utils::get_base_url(&backend_url)?;
 
     let req_object = L8RequestObject::new(backend_url, resource, options).await?;
 
     // we can limit the reinitializations to 2 per fetch call and +1 for the initial request
     let mut attempts = constants::REINIT_ATTEMPTS;
     loop {
-        let network_state = get_network_state(&backend_base_url).await?;
+        let network_state = InMemoryCache::get_network_state(&backend_base_url).await?;
+
         let network_state_open = match network_state.as_ref() {
             NetworkState::OPEN(state) => state,
             _ => {
@@ -83,9 +81,7 @@ pub async fn fetch(
                     forward_proxy_url: network_state_open.forward_proxy_url.clone(),
                 };
 
-                NETWORK_STATE_MAP.with_borrow_mut(|cache| {
-                    cache.insert(backend_base_url.clone(), Rc::new(NetworkState::OPEN(state)));
-                });
+                InMemoryCache::set_open_network_state(&backend_base_url, state);
             }
         }
     }

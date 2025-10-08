@@ -2,10 +2,9 @@ use wasm_bindgen::{JsCast, JsValue, throw_str, UnwrapThrowExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use ntor::common::NTorParty;
-use ntor::common::EncryptedMessage;
 use web_sys::{ReferrerPolicy, RequestMode};
 use web_sys::{AbortSignal, console, Request, RequestInit, ResponseInit};
-use crate::storage::DEV_FLAG;
+use crate::storage::InMemoryCache;
 use crate::types::response::L8ResponseObject;
 use crate::types::{network_state::NetworkStateOpen, WasmEncryptedMessage};
 use crate::types::network_state::NetworkStateResponse;
@@ -50,7 +49,7 @@ impl L8RequestObject {
         options: Option<RequestInit>,
     ) -> Result<Self, JsValue>
     {
-        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+        let dev_flag = InMemoryCache::get_dev_flag();
 
         let uri = utils::get_uri(&backend_url)?;
 
@@ -196,7 +195,7 @@ impl L8RequestObject {
         reinitialize_attempt: bool,
     ) -> Result<NetworkStateResponse, JsValue>
     {
-        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+        let dev_flag = InMemoryCache::get_dev_flag();
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
@@ -265,7 +264,7 @@ impl L8RequestObject {
         response: reqwest::Response,
     ) -> Result<NetworkStateResponse, JsValue>
     {
-        let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+        let dev_flag = InMemoryCache::get_dev_flag();
 
         // status >= 400
         if response.status() >= reqwest::StatusCode::BAD_REQUEST {

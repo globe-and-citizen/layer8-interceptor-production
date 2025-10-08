@@ -7,15 +7,14 @@ use web_sys::console;
 
 use ntor::client::NTorClient;
 use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
-use std::rc::Rc;
 
 use crate::constants::MAX_INIT_TUNNEL_ATTEMPTS;
-use crate::storage::{DEV_FLAG, NETWORK_STATE_MAP};
+use crate::storage::InMemoryCache;
 use crate::utils;
 use crate::types::{
     http_caller::{ActualHttpCaller, HttpCaller, HttpCallerResponse},
-    network_state::{NetworkState, NetworkStateOpen},
-    service_provider::ServiceProvider
+    network_state::{NetworkStateOpen},
+    service_provider::ServiceProvider,
 };
 use crate::utils::get_base_url;
 
@@ -66,7 +65,7 @@ pub async fn init_tunnel(
     http_caller: impl HttpCaller,
 ) -> Result<InitTunnelResult, JsValue>
 {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+    let dev_flag = InMemoryCache::get_dev_flag();
 
     // 1. Initialize NTor Client message
     let mut client = NTorClient::new();
@@ -105,8 +104,7 @@ pub async fn init_tunnel(
                         &format!(
                             "Failed to initialize tunnel after {} attempts",
                             init_tunnel_retry
-                        )
-                        .into(),
+                        ).into(),
                     );
                     return Err(JsValue::from_str(&format!(
                         "Failed to initialize tunnel after {} attempts: {}",
@@ -158,8 +156,7 @@ pub async fn init_tunnel(
                 client.get_shared_secret().expect_throw(
                     "Shared secret should be available after successful tunnel initialization"
                 )
-            )
-            .into(),
+            ).into(),
         );
     }
 
@@ -182,19 +179,14 @@ pub fn init_encrypted_tunnels(
 ) -> Result<(), JsValue> {
     if let Some(val) = dev_flag {
         if val {
-            DEV_FLAG.with_borrow_mut(|flag| *flag = true);
+            InMemoryCache::set_dev_flag(true);
             console::log_1(&"Dev mode enabled".into());
         }
     }
 
     for service_provider in service_providers {
         // update the urls as connecting before scheduling the background task to initialize the tunnel
-        NETWORK_STATE_MAP.with_borrow_mut(|cache| {
-            cache.insert(
-                service_provider.url.clone(),
-                Rc::new(NetworkState::CONNECTING),
-            );
-        });
+        InMemoryCache::set_connecting_network_state(&service_provider.url);
 
         let base_url = get_base_url(&service_provider.url)?;
         let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
@@ -216,15 +208,10 @@ pub fn init_encrypted_tunnels(
                         forward_proxy_url: forward_proxy_url.clone(),
                     };
 
-                    NETWORK_STATE_MAP.with_borrow_mut(|cache| {
-                        cache.insert(base_url, Rc::new(NetworkState::OPEN(state)));
-                    });
+                    InMemoryCache::set_open_network_state(&base_url, state);
                 }
-
                 Err(err) => {
-                    NETWORK_STATE_MAP.with_borrow_mut(|cache| {
-                        cache.insert(base_url, Rc::new(NetworkState::ERRORED(err)));
-                    });
+                    InMemoryCache::set_errored_network_state(&base_url, err);
                 }
             }
         });

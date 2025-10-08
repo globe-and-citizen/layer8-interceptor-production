@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use wasm_streams::ReadableStream;
 use web_sys::console;
 use js_sys::Uint8Array;
-use crate::storage::DEV_FLAG;
+use crate::storage::InMemoryCache;
 use crate::types::request::L8BodyType;
 
 pub(crate) async fn sleep(delay: i32) {
@@ -94,7 +94,7 @@ pub fn headers_to_reqwest_headers(
     js_headers: JsValue,
 ) -> Result<HashMap<String, serde_json::Value>, JsValue>
 {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+    let dev_flag = InMemoryCache::get_dev_flag();
 
     // If the headers are undefined or null, we return an empty HeaderMap
     if js_headers.is_null() || js_headers.is_undefined() {
@@ -289,7 +289,7 @@ pub async fn parse_js_request_body(body: JsValue) -> Result<L8BodyType, JsValue>
 /// This function reads the stream until it is done and accumulates the data into a Vec<u8>.
 ///
 pub async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result<Vec<u8>, JsValue> {
-    let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
+    let dev_flag = InMemoryCache::get_dev_flag();
     let reader = stream.get_reader();
     let reader = reader
         .dyn_ref::<web_sys::ReadableStreamDefaultReader>()
