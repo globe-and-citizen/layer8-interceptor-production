@@ -10,10 +10,10 @@ use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 use std::rc::Rc;
 
 use crate::constants::MAX_INIT_TUNNEL_ATTEMPTS;
-use crate::storage::{DEV_FLAG, NETWORK_STATE};
+use crate::storage::{DEV_FLAG, NETWORK_STATE_MAP};
 use crate::utils;
 use crate::types::{
-    http_call_indirection::{ActualHttpCaller, HttpCaller, HttpCallerResponse},
+    http_caller::{ActualHttpCaller, HttpCaller, HttpCallerResponse},
     network_state::{NetworkState, NetworkStateOpen},
     service_provider::ServiceProvider
 };
@@ -189,7 +189,7 @@ pub fn init_encrypted_tunnels(
 
     for service_provider in service_providers {
         // update the urls as connecting before scheduling the background task to initialize the tunnel
-        NETWORK_STATE.with_borrow_mut(|cache| {
+        NETWORK_STATE_MAP.with_borrow_mut(|cache| {
             cache.insert(
                 service_provider.url.clone(),
                 Rc::new(NetworkState::CONNECTING),
@@ -216,13 +216,13 @@ pub fn init_encrypted_tunnels(
                         forward_proxy_url: forward_proxy_url.clone(),
                     };
 
-                    NETWORK_STATE.with_borrow_mut(|cache| {
+                    NETWORK_STATE_MAP.with_borrow_mut(|cache| {
                         cache.insert(base_url, Rc::new(NetworkState::OPEN(state)));
                     });
                 }
 
                 Err(err) => {
-                    NETWORK_STATE.with_borrow_mut(|cache| {
+                    NETWORK_STATE_MAP.with_borrow_mut(|cache| {
                         cache.insert(base_url, Rc::new(NetworkState::ERRORED(err)));
                     });
                 }

@@ -2,11 +2,13 @@ use wasm_bindgen::{JsCast, JsValue, throw_str, UnwrapThrowExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use ntor::common::NTorParty;
+use ntor::common::EncryptedMessage;
 use web_sys::{ReferrerPolicy, RequestMode};
 use web_sys::{AbortSignal, console, Request, RequestInit, ResponseInit};
 use crate::storage::DEV_FLAG;
 use crate::types::response::L8ResponseObject;
-use crate::types::{Body, Mode, network_state::{NetworkStateOpen}, NetworkResponse, WasmEncryptedMessage};
+use crate::types::{network_state::NetworkStateOpen, WasmEncryptedMessage};
+use crate::types::network_state::NetworkStateResponse;
 use crate::utils;
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
@@ -33,7 +35,7 @@ pub struct L8RequestObject {
     #[serde(skip)]
     pub keep_alive: Option<bool>,
     #[serde(skip)]
-    pub mode: Option<Mode>,
+    pub mode: Option<L8RequestMode>,
     #[serde(skip)]
     pub redirect: Option<String>,
     #[serde(skip)]
@@ -98,9 +100,9 @@ impl L8RequestObject {
             })?;
 
             match body {
-                Body::Bytes(bytes) => req_wrapper.body = bytes,
+                L8BodyType::Bytes(bytes) => req_wrapper.body = bytes,
 
-                Body::Params(params) => {
+                L8BodyType::Params(params) => {
                     let query = params
                         .iter()
                         .map(|(key, value)| format!("{}={}", key, value))
@@ -113,7 +115,7 @@ impl L8RequestObject {
                     req_wrapper.uri = uri.to_string();
                 }
 
-                Body::FormData(form_data) => {
+                L8BodyType::FormData(form_data) => {
                     let boundary = uuid::Uuid::new_v4().to_string();
                     let data = utils::parse_form_data_to_array(form_data, &boundary).await?;
 
@@ -129,7 +131,7 @@ impl L8RequestObject {
                     req_wrapper.body = data;
                 }
 
-                Body::File(file) => {
+                L8BodyType::File(file) => {
                     // Fixme: find out if behavior is a byte array or we should use form data for the request
                     // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#setting_a_body>
                     // Convert File to a byte array
@@ -141,7 +143,7 @@ impl L8RequestObject {
                     req_wrapper.body = uint8_array.to_vec();
                 }
 
-                Body::Stream(stream) => {
+                L8BodyType::Stream(stream) => {
                     // Convert ReadableStream to bytes
                     let bytes = utils::readable_stream_to_bytes(stream.into_raw()).await?;
                     req_wrapper.body = bytes;
@@ -181,7 +183,7 @@ impl L8RequestObject {
         };
 
         req_wrapper.headers = utils::headers_to_reqwest_headers(JsValue::from(req.headers()))?;
-        req_wrapper.mode = Some(Mode::Cors); // Default mode for Request objects
+        req_wrapper.mode = Some(L8RequestMode::Cors); // Default mode for Request objects
         return Ok(req_wrapper);
     }
 
@@ -192,7 +194,7 @@ impl L8RequestObject {
         &self,
         network_state_open: &NetworkStateOpen,
         reinitialize_attempt: bool,
-    ) -> Result<NetworkResponse, JsValue>
+    ) -> Result<NetworkStateResponse, JsValue>
     {
         let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
         let data = serde_json::to_vec(&self).expect_throw(
@@ -246,7 +248,7 @@ impl L8RequestObject {
             Err(err) => {
                 // we can reinitialize the network state
                 if reinitialize_attempt {
-                    return Ok(NetworkResponse::Reinitialize);
+                    return Ok(NetworkStateResponse::Reinitialize);
                 }
 
                 Err(JsValue::from_str(&format!(
@@ -261,7 +263,7 @@ impl L8RequestObject {
         network_state_open: &NetworkStateOpen,
         reinitialize_attempt: bool,
         response: reqwest::Response,
-    ) -> Result<NetworkResponse, JsValue>
+    ) -> Result<NetworkStateResponse, JsValue>
     {
         let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
 
@@ -273,10 +275,10 @@ impl L8RequestObject {
 
             // we can reinitialize the network state
             if reinitialize_attempt {
-                return Ok(NetworkResponse::Reinitialize);
+                return Ok(NetworkStateResponse::Reinitialize);
             }
 
-            return Ok(NetworkResponse::ProxyError(JsValue::from_str(&format!(
+            return Ok(NetworkStateResponse::ProxyError(JsValue::from_str(&format!(
                 "Unexpected response from the proxy server: {}; With body: {}",
                 response.status(),
                 response
@@ -333,7 +335,7 @@ impl L8RequestObject {
         array.copy_from(&l8_response.body);
 
         match web_sys::Response::new_with_opt_js_u8_array_and_init(Some(&array), &resp_init) {
-            Ok(response) => Ok(NetworkResponse::ProviderResponse(response)),
+            Ok(response) => Ok(NetworkStateResponse::ProviderResponse(response)),
             Err(err) => {
                 throw_str(&format!(
                     "Failed to construct JS Response: {:?}",
@@ -386,11 +388,11 @@ impl L8RequestObject {
 
         // mode
         self.mode = match options.get_mode() {
-            Some(RequestMode::SameOrigin) => Some(Mode::SameOrigin),
-            Some(RequestMode::NoCors) => Some(Mode::NoCors),
-            Some(RequestMode::Cors) => Some(Mode::Cors),
-            Some(RequestMode::Navigate) => Some(Mode::Navigate),
-            _ => Some(Mode::Cors),
+            Some(RequestMode::SameOrigin) => Some(L8RequestMode::SameOrigin),
+            Some(RequestMode::NoCors) => Some(L8RequestMode::NoCors),
+            Some(RequestMode::Cors) => Some(L8RequestMode::Cors),
+            Some(RequestMode::Navigate) => Some(L8RequestMode::Navigate),
+            _ => Some(L8RequestMode::Cors),
         };
 
         // redirect
@@ -440,4 +442,27 @@ impl L8RequestObject {
         // signal
         self.signal = options.get_signal();
     }
+}
+
+pub enum L8BodyType {
+    Bytes(Vec<u8>),
+    Stream(wasm_streams::ReadableStream),
+    Params(HashMap<String, String>),
+    FormData(web_sys::FormData),
+    #[allow(dead_code)]
+    File(web_sys::File),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum L8RequestMode {
+    // Disallows cross-origin requests. If a request is made to another origin with this mode set, the result is an error.
+    SameOrigin = 0,
+    // Disables CORS for cross-origin requests. The response is opaque, meaning that its headers and body are not available to JavaScript.
+    NoCors = 1,
+    // If the request is cross-origin then it will use the Cross-Origin Resource Sharing (CORS) mechanism.
+    // Using the Request() constructor, the value of the mode property for that Request is set to cors.
+    Cors = 2,
+    // A mode for supporting navigation. The navigate value is intended to be used only by HTML navigation.
+    // A navigate request is created only while navigating between documents.
+    Navigate = 3,
 }

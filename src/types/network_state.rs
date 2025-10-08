@@ -21,3 +21,13 @@ pub(crate) struct NetworkStateOpen {
     pub forward_proxy_url: String,
 }
 
+// This enum is used to represent the response from the network state.
+pub enum NetworkStateResponse {
+    // This is an error in response to the unexpected response from the proxy server.
+    ProxyError(JsValue),
+    // This is a successful response from the proxy server.
+    ProviderResponse(web_sys::Response),
+    // This is an indicator that we are reinitializing the connection
+    Reinitialize,
+}
+

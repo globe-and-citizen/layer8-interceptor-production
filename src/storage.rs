@@ -10,7 +10,7 @@ thread_local! {
     /// This is the cache for all the InitTunnelResult present. It is the single source of truth for the state of the system.
     ///
     /// It maps a provider name (e.g., "https://provider.com") to its corresponding `NetworkState`.
-    pub(crate) static NETWORK_STATE: RefCell<HashMap<String, Rc<NetworkState>>> = RefCell::new(HashMap::new());
+    pub(crate) static NETWORK_STATE_MAP: RefCell<HashMap<String, Rc<NetworkState>>> = RefCell::new(HashMap::new());
 
     /// This is a flag to indicate if the dev mode is enabled. It is used to enable or disable the dev mode features like logging.
     pub(crate) static DEV_FLAG: RefCell<bool> = const { RefCell::new(false) };
@@ -19,7 +19,7 @@ thread_local! {
 pub(crate) async fn get_network_state(provider_url: &str) -> Result<Rc<NetworkState>, JsValue> {
     let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
     loop {
-        let network_state = NETWORK_STATE
+        let network_state = NETWORK_STATE_MAP
             .with_borrow(|cache| cache.get(provider_url).map(Rc::clone))
             .ok_or_else(|| {
                 JsValue::from_str(&format!(

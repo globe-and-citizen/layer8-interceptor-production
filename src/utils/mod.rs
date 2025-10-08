@@ -4,7 +4,7 @@ use wasm_streams::ReadableStream;
 use web_sys::console;
 use js_sys::Uint8Array;
 use crate::storage::DEV_FLAG;
-use crate::types::Body;
+use crate::types::request::L8BodyType;
 
 pub(crate) async fn sleep(delay: i32) {
     let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {
@@ -180,7 +180,7 @@ fn js_headers_to_reqwest_headers(
 
 // Converts a Javascript request body to a reqwest Body type.
 // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#setting_a_body>
-pub async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
+pub async fn parse_js_request_body(body: JsValue) -> Result<L8BodyType, JsValue> {
     // You can supply the body as an instance of any of the following types:
     // a string
     // ArrayBuffer
@@ -194,7 +194,7 @@ pub async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
 
     // a string
     if body.is_string() {
-        return Ok(Body::Bytes(
+        return Ok(L8BodyType::Bytes(
             body.as_string()
                 .expect_throw("Expected body to be a string")
                 .into_bytes(),
@@ -204,7 +204,7 @@ pub async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
     // ArrayBuffer
     if let Some(val) = body.dyn_ref::<js_sys::ArrayBuffer>() {
         let uint8_array = js_sys::Uint8Array::new(val);
-        return Ok(Body::Bytes(uint8_array.to_vec()));
+        return Ok(L8BodyType::Bytes(uint8_array.to_vec()));
     }
 
     // *TypedArray, todo
@@ -212,14 +212,14 @@ pub async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
     // DataView
     if let Some(val) = body.dyn_ref::<js_sys::DataView>() {
         let uint8_array = js_sys::Uint8Array::new(&val.buffer());
-        return Ok(Body::Bytes(uint8_array.to_vec()));
+        return Ok(L8BodyType::Bytes(uint8_array.to_vec()));
     }
 
     // Blob
     if let Some(val) = body.dyn_ref::<web_sys::Blob>() {
         let readable_stream = val.stream();
         let body = ReadableStream::from_raw(readable_stream);
-        return Ok(Body::Stream(body));
+        return Ok(L8BodyType::Stream(body));
     }
 
     // File
@@ -229,7 +229,7 @@ pub async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
             .expect_throw("Expected body to be a web_sys::File");
         let readable_stream = val.stream();
         let body = ReadableStream::from_raw(readable_stream);
-        return Ok(Body::Stream(body));
+        return Ok(L8BodyType::Stream(body));
     }
 
     // URLSearchParams
@@ -250,7 +250,7 @@ pub async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
                 .expect_throw("Expected value in URLSearchParams value entry to be a string");
             params.insert(key, value);
         }
-        return Ok(Body::Params(params));
+        return Ok(L8BodyType::Params(params));
     }
 
     // FormData
@@ -259,7 +259,7 @@ pub async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
             .dyn_into::<web_sys::FormData>()
             .expect_throw("Expected body to be a web_sys::FormData");
 
-        return Ok(Body::FormData(val));
+        return Ok(L8BodyType::FormData(val));
     }
 
     // ReadableStream
@@ -268,7 +268,7 @@ pub async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
             .dyn_into::<web_sys::ReadableStream>()
             .expect_throw("Expected body to be a web_sys::ReadableStream");
         let body = ReadableStream::from_raw(readable_stream);
-        return Ok(Body::Stream(body));
+        return Ok(L8BodyType::Stream(body));
     }
 
     // Other objects are converted to strings using their toString() method.
@@ -276,7 +276,7 @@ pub async fn parse_js_request_body(body: JsValue) -> Result<Body, JsValue> {
         let val = js_sys::Object::to_string(val)
             .as_string()
             .expect_throw("Expected body to be a string representation of an object");
-        return Ok(Body::Bytes(val.into_bytes()));
+        return Ok(L8BodyType::Bytes(val.into_bytes()));
     }
 
     Err(JsValue::from_str(

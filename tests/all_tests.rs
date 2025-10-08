@@ -3,7 +3,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 use {
     layer8_interceptor_production::{
         init_tunnel::init_tunnel,
-        types::http_call_indirection::MockHttpCaller,
+        types::http_caller::MockHttpCaller,
     },
     uuid::Uuid,
     wasm_bindgen_test::*,

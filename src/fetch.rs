@@ -5,12 +5,12 @@ use web_sys::{console, RequestInit};
 
 use crate::{constants, utils};
 use crate::types::request::L8RequestObject;
-use crate::types::NetworkResponse;
-use crate::types::http_call_indirection::ActualHttpCaller;
+use crate::types::network_state::NetworkStateResponse;
+use crate::types::http_caller::ActualHttpCaller;
 use crate::init_tunnel::init_tunnel;
 use crate::types::network_state::{NetworkState, NetworkStateOpen};
 use crate::utils::get_base_url;
-use crate::storage::{DEV_FLAG, NETWORK_STATE, get_network_state};
+use crate::storage::{DEV_FLAG, NETWORK_STATE_MAP, get_network_state};
 
 /// This API is expected to be a 1:1 mapping of the Fetch API.
 /// Arguments:
@@ -49,12 +49,12 @@ pub async fn fetch(
         attempts -= 1;
 
         match resp {
-            NetworkResponse::ProviderResponse(response) => {
+            NetworkStateResponse::ProviderResponse(response) => {
                 // If the response is successful, we return it
                 return Ok(response);
             }
 
-            NetworkResponse::ProxyError(err) => {
+            NetworkStateResponse::ProxyError(err) => {
                 // If the response is an error, we have exhausted the reinitialization attempts
                 if dev_flag {
                     console::error_1(&err);
@@ -63,7 +63,7 @@ pub async fn fetch(
                 return Err(err);
             }
 
-            NetworkResponse::Reinitialize => {
+            NetworkStateResponse::Reinitialize => {
                 let backend_url = format!(
                     "{}/init-tunnel?backend_url={}",
                     network_state_open.forward_proxy_url, backend_base_url
@@ -83,7 +83,7 @@ pub async fn fetch(
                     forward_proxy_url: network_state_open.forward_proxy_url.clone(),
                 };
 
-                NETWORK_STATE.with_borrow_mut(|cache| {
+                NETWORK_STATE_MAP.with_borrow_mut(|cache| {
                     cache.insert(backend_base_url.clone(), Rc::new(NetworkState::OPEN(state)));
                 });
             }

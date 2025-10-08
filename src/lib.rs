@@ -1,6 +1,6 @@
 pub mod init_tunnel;
-mod utils;
+pub mod utils;
 pub mod types;
-pub mod fetch_api;
+pub mod fetch;
 mod storage;
 pub mod constants;
