@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use wasm_bindgen::JsValue;
 use web_sys::console;
-use crate::constants::SLEEP_DELAY;
+use crate::constants::FETCH_RETRY_SLEEP_DELAY;
 use crate::types::network_state::{NetworkState, NetworkStateOpen};
 use crate::utils;
 
@@ -37,12 +37,11 @@ impl InMemoryCache {
                 NetworkState::CONNECTING => {
                     if dev_flag {
                         console::log_1(
-                            &format!("Waiting for network state to be OPEN for {}", provider_url)
-                                .into(),
+                            &format!("Waiting for network state to be OPEN for {}", provider_url).into(),
                         );
                     }
 
-                    utils::sleep(SLEEP_DELAY).await; // wait before checking
+                    utils::sleep(FETCH_RETRY_SLEEP_DELAY).await; // wait before checking
                     continue;
                 }
             }
@@ -67,10 +66,15 @@ impl InMemoryCache {
         });
     }
 
-    pub(crate) fn set_dev_flag(flag: bool) {
-        DEV_FLAG.with_borrow_mut(|dev_flag| {
-            *dev_flag = flag;
-        });
+    pub(crate) fn set_dev_flag(flag: Option<bool>) -> bool {
+        if let Some(val) = flag {
+            if val {
+                DEV_FLAG.with_borrow_mut(|dev_flag| *dev_flag = true );
+                console::log_1(&"Dev mode enabled".into());
+                return true
+            }
+        }
+        return false
     }
 
     pub(crate) fn get_dev_flag() -> bool {

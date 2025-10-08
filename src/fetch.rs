@@ -26,7 +26,7 @@ pub async fn fetch(
     let req_object = L8RequestObject::new(backend_url, resource, options).await?;
 
     // we can limit the reinitializations to 2 per fetch call and +1 for the initial request
-    let mut attempts = constants::REINIT_ATTEMPTS;
+    let mut attempts = constants::FETCH_RETRY_ATTEMPTS;
     loop {
         let network_state = InMemoryCache::get_network_state(&backend_base_url).await?;
 

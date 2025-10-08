@@ -280,7 +280,8 @@ pub async fn parse_js_request_body(body: JsValue) -> Result<L8BodyType, JsValue>
     }
 
     Err(JsValue::from_str(
-        "Invalid body type for fetch. Expected a string, ArrayBuffer, TypedArray, DataView, Blob, File, URLSearchParams, FormData, or ReadableStream.",
+        "Invalid body type for fetch. Expected a string, ArrayBuffer, TypedArray, DataView, \
+        Blob, File, URLSearchParams, FormData, or ReadableStream.",
     ))
 }
 
