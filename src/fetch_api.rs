@@ -8,10 +8,9 @@ use crate::types::request::L8RequestObject;
 use crate::types::NetworkResponse;
 use crate::types::http_call_indirection::ActualHttpCaller;
 use crate::init_tunnel::init_tunnel;
-use crate::types::network_state::{
-    DEV_FLAG, get_network_state, NETWORK_STATE, NetworkState, NetworkStateOpen,
-};
+use crate::types::network_state::{NetworkState, NetworkStateOpen};
 use crate::utils::get_base_url;
+use crate::storage::{DEV_FLAG, NETWORK_STATE, get_network_state};
 
 /// This API is expected to be a 1:1 mapping of the Fetch API.
 /// Arguments:

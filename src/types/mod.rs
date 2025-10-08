@@ -7,6 +7,7 @@ pub mod network_state;
 pub mod http_call_indirection;
 pub mod request;
 mod response;
+pub(crate) mod service_provider;
 
 pub enum Body {
     Bytes(Vec<u8>),

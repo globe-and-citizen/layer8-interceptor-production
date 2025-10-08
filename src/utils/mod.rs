@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use wasm_streams::ReadableStream;
 use web_sys::console;
 use js_sys::Uint8Array;
+use crate::storage::DEV_FLAG;
 use crate::types::Body;
-use crate::types::network_state::DEV_FLAG;
 
 pub(crate) async fn sleep(delay: i32) {
     let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {
@@ -92,7 +92,8 @@ pub fn retrieve_resource_url(resource: &JsValue) -> Result<String, JsValue> {
 // we expect the headers to be either Headers or an Object
 pub fn headers_to_reqwest_headers(
     js_headers: JsValue,
-) -> Result<HashMap<String, serde_json::Value>, JsValue> {
+) -> Result<HashMap<String, serde_json::Value>, JsValue>
+{
     let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
 
     // If the headers are undefined or null, we return an empty HeaderMap
@@ -154,7 +155,8 @@ pub fn headers_to_reqwest_headers(
 
 fn js_headers_to_reqwest_headers(
     headers: &web_sys::Headers,
-) -> Result<HashMap<String, serde_json::Value>, JsValue> {
+) -> Result<HashMap<String, serde_json::Value>, JsValue>
+{
     let mut reqwest_headers = HashMap::new();
     for entry in headers.entries() {
         // [key, value] item array
@@ -350,7 +352,8 @@ pub async fn readable_stream_to_bytes(stream: web_sys::ReadableStream) -> Result
 pub async fn parse_form_data_to_array(
     form: web_sys::FormData,
     boundary: &str,
-) -> Result<Vec<u8>, JsValue> {
+) -> Result<Vec<u8>, JsValue>
+{
     let prefix = format!("--{}\r\nContent-Disposition: form-data", boundary);
     let mut blob_parts = Vec::new();
     let rn = Uint8Array::from(&[13, 10][..]); // '\r\n'

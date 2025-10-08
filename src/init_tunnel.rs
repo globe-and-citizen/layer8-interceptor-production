@@ -10,10 +10,12 @@ use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 use std::rc::Rc;
 
 use crate::constants::MAX_INIT_TUNNEL_ATTEMPTS;
+use crate::storage::{DEV_FLAG, NETWORK_STATE};
 use crate::utils;
 use crate::types::{
-    http_call_indirection::{HttpCaller, HttpCallerResponse, ActualHttpCaller},
-    network_state::{NETWORK_STATE, DEV_FLAG, NetworkState, NetworkStateOpen, ServiceProvider},
+    http_call_indirection::{ActualHttpCaller, HttpCaller, HttpCallerResponse},
+    network_state::{NetworkState, NetworkStateOpen},
+    service_provider::ServiceProvider
 };
 use crate::utils::get_base_url;
 
