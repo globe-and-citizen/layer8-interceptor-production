@@ -2,11 +2,11 @@ use wasm_bindgen::prelude::*;
 use web_sys::{console, RequestInit};
 
 use crate::{constants, utils};
-use crate::types::request::L8RequestObject;
-use crate::types::network_state::NetworkStateResponse;
-use crate::types::http_caller::ActualHttpCaller;
+use crate::types::{
+    request::L8RequestObject, http_caller::ActualHttpCaller,
+    network_state::{NetworkState, NetworkStateOpen, NetworkStateResponse}
+};
 use crate::init_tunnel::init_tunnel;
-use crate::types::network_state::{NetworkState, NetworkStateOpen};
 use crate::storage::InMemoryCache;
 
 /// This API is expected to be a 1:1 mapping of the Fetch API.

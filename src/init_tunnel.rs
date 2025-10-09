@@ -145,7 +145,7 @@ pub async fn init_tunnel(
     // 3. Parse the response
     let response_body = match response.bytes().await {
         Ok(bytes) => {
-            serde_json::from_slice::<InitTunnelResponse>(&bytes.to_vec())
+            serde_json::from_slice::<InitTunnelResponse>(&bytes)
                 .expect_throw("Failed to deserialize response body to InitTunnelResponse")
         }
         Err(err) => {

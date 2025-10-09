@@ -7,12 +7,12 @@ use std::collections::HashMap;
 use ntor::common::NTorParty;
 use web_sys::{AbortSignal, console, Request, RequestInit, ResponseInit};
 use body::L8BodyType;
-use mode_and_policies::L8RequestMode;
+use mode_and_policies::{L8RequestMode, get_request_referer_policy};
 use crate::storage::InMemoryCache;
-use crate::types::response::L8ResponseObject;
-use crate::types::{network_state::NetworkStateOpen, WasmEncryptedMessage};
-use crate::types::network_state::NetworkStateResponse;
-use crate::types::request::mode_and_policies::get_request_referer_policy;
+use crate::types::{
+    response::L8ResponseObject, WasmEncryptedMessage,
+    network_state::{NetworkStateOpen, NetworkStateResponse},
+};
 use crate::utils;
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
