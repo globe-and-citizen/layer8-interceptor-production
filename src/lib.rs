@@ -1,6 +1,6 @@
-pub mod constants;
+pub(crate) mod constants;
 pub mod fetch;
-pub mod http_call_indirection;
 pub mod init_tunnel;
-pub mod network_state;
-mod utils;
+mod storage;
+pub mod types;
+pub mod utils;
