@@ -1,5 +1,5 @@
-use wasm_bindgen::prelude::*;
 use crate::init_tunnel::InitTunnelResult;
+use wasm_bindgen::prelude::*;
 
 /// Represents the current state of the network connection for a service provider.
 #[derive(Debug)]
@@ -30,4 +30,3 @@ pub enum NetworkStateResponse {
     // This is an indicator that we are reinitializing the connection
     Reinitialize,
 }
-

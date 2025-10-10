@@ -1,10 +1,10 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
-use wasm_bindgen::JsValue;
-use web_sys::console;
 use crate::constants::FETCH_RETRY_SLEEP_DELAY;
 use crate::types::network_state::{NetworkState, NetworkStateOpen};
 use crate::utils;
 
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use wasm_bindgen::JsValue;
+use web_sys::console;
 
 thread_local! {
     /// This is the cache for all the InitTunnelResult present. It is the single source of truth for the state of the system.
@@ -37,7 +37,8 @@ impl InMemoryCache {
                 NetworkState::CONNECTING => {
                     if dev_flag {
                         console::log_1(
-                            &format!("Waiting for network state to be OPEN for {}", provider_url).into(),
+                            &format!("Waiting for network state to be OPEN for {}", provider_url)
+                                .into(),
                         );
                     }
 
@@ -62,23 +63,25 @@ impl InMemoryCache {
 
     pub(crate) fn set_errored_network_state(provider_url: &str, err: JsValue) {
         NETWORK_STATE_MAP.with_borrow_mut(|cache| {
-            cache.insert(provider_url.to_string(), Rc::new(NetworkState::ERRORED(err)));
+            cache.insert(
+                provider_url.to_string(),
+                Rc::new(NetworkState::ERRORED(err)),
+            );
         });
     }
 
     pub(crate) fn set_dev_flag(flag: Option<bool>) -> bool {
         if let Some(val) = flag {
             if val {
-                DEV_FLAG.with_borrow_mut(|dev_flag| *dev_flag = true );
+                DEV_FLAG.with_borrow_mut(|dev_flag| *dev_flag = true);
                 console::log_1(&"Dev mode enabled".into());
-                return true
+                return true;
             }
         }
-        return false
+        return false;
     }
 
     pub(crate) fn get_dev_flag() -> bool {
         DEV_FLAG.with_borrow(|dev_flag| *dev_flag)
     }
 }
-

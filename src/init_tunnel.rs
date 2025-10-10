@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use wasm_bindgen::{JsValue, prelude::wasm_bindgen, UnwrapThrowExt};
+use wasm_bindgen::{JsValue, UnwrapThrowExt, prelude::wasm_bindgen};
 use web_sys::console;
 
 use ntor::client::NTorClient;
@@ -10,13 +10,12 @@ use ntor::common::{InitSessionResponse, NTorCertificate, NTorParty};
 
 use crate::constants::{INIT_TUNNEL_RETRY_ATTEMPTS, INIT_TUNNEL_RETRY_SLEEP_DELAY};
 use crate::storage::InMemoryCache;
-use crate::utils;
 use crate::types::{
     http_caller::{ActualHttpCaller, HttpCaller, HttpCallerResponse},
-    network_state::{NetworkStateOpen},
+    network_state::NetworkStateOpen,
     service_provider::ServiceProvider,
 };
-use crate::utils::get_base_url;
+use crate::utils;
 
 #[derive(Clone)]
 #[wasm_bindgen(getter_with_clone)]
@@ -90,8 +89,7 @@ impl Debug for InitTunnelResult {
 pub async fn init_tunnel(
     backend_url: String,
     http_caller: impl HttpCaller,
-) -> Result<InitTunnelResult, JsValue>
-{
+) -> Result<InitTunnelResult, JsValue> {
     let dev_flag = InMemoryCache::get_dev_flag();
 
     // 1. Initialize NTor Client message
@@ -144,16 +142,17 @@ pub async fn init_tunnel(
 
     // 3. Parse the response
     let response_body = match response.bytes().await {
-        Ok(bytes) => {
-            serde_json::from_slice::<InitTunnelResponse>(&bytes)
-                .expect_throw("Failed to deserialize response body to InitTunnelResponse")
-        }
+        Ok(bytes) => serde_json::from_slice::<InitTunnelResponse>(&bytes)
+            .expect_throw("Failed to deserialize response body to InitTunnelResponse"),
         Err(err) => {
             if dev_flag {
                 console::error_1(&format!("Cannot read response body: {}", err).into());
             }
 
-            return Err(JsValue::from_str(&format!("Cannot read response body: {:?}", err)));
+            return Err(JsValue::from_str(&format!(
+                "Cannot read response body: {:?}",
+                err
+            )));
         }
     };
 
@@ -169,7 +168,8 @@ pub async fn init_tunnel(
                 init_tunnel_result.client.get_shared_secret().expect_throw(
                     "Shared secret should be available after successful tunnel initialization"
                 )
-            ).into(),
+            )
+            .into(),
         );
     }
 
@@ -193,7 +193,7 @@ pub fn init_encrypted_tunnels(
         // update the urls as connecting before scheduling the background task to initialize the tunnel
         InMemoryCache::set_connecting_network_state(&service_provider.url);
 
-        let base_url = get_base_url(&service_provider.url)?;
+        let base_url = utils::get_base_url(&service_provider.url)?;
         let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
         let forward_proxy_url = forward_proxy_url.clone();
 

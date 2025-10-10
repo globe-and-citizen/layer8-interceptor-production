@@ -1,13 +1,14 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{console, RequestInit};
+use web_sys::{RequestInit, console};
 
-use crate::{constants, utils};
-use crate::types::{
-    request::L8RequestObject, http_caller::ActualHttpCaller,
-    network_state::{NetworkState, NetworkStateOpen, NetworkStateResponse}
-};
 use crate::init_tunnel::init_tunnel;
 use crate::storage::InMemoryCache;
+use crate::types::{
+    http_caller::ActualHttpCaller,
+    network_state::{NetworkState, NetworkStateOpen, NetworkStateResponse},
+    request::L8RequestObject,
+};
+use crate::{constants, utils};
 
 /// This API is expected to be a 1:1 mapping of the Fetch API.
 /// Arguments:
@@ -17,8 +18,7 @@ use crate::storage::InMemoryCache;
 pub async fn fetch(
     resource: JsValue,
     options: Option<RequestInit>,
-) -> Result<web_sys::Response, JsValue>
-{
+) -> Result<web_sys::Response, JsValue> {
     let dev_flag = InMemoryCache::get_dev_flag();
     let backend_url = utils::retrieve_resource_url(&resource)?;
     let backend_base_url = utils::get_base_url(&backend_url)?;

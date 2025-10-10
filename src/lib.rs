@@ -1,6 +1,6 @@
-pub mod init_tunnel;
-pub mod utils;
-pub mod types;
+pub(crate) mod constants;
 pub mod fetch;
+pub mod init_tunnel;
 mod storage;
-pub mod constants;
+pub mod types;
+pub mod utils;

@@ -1,19 +1,20 @@
 mod body;
 mod mode_and_policies;
 
-use wasm_bindgen::{JsCast, JsValue, throw_str, UnwrapThrowExt};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use ntor::common::NTorParty;
-use web_sys::{AbortSignal, console, Request, RequestInit, ResponseInit};
-use body::L8BodyType;
-use mode_and_policies::{L8RequestMode, get_request_referer_policy};
 use crate::storage::InMemoryCache;
 use crate::types::{
-    response::L8ResponseObject, WasmEncryptedMessage,
+    WasmEncryptedMessage,
     network_state::{NetworkStateOpen, NetworkStateResponse},
+    response::L8ResponseObject,
 };
 use crate::utils;
+use body::L8BodyType;
+use mode_and_policies::{L8RequestMode, get_request_referer_policy};
+use ntor::common::NTorParty;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt, throw_str};
+use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -52,8 +53,7 @@ impl L8RequestObject {
         backend_url: String,
         resource: JsValue,
         options: Option<RequestInit>,
-    ) -> Result<Self, JsValue>
-    {
+    ) -> Result<Self, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
 
         let uri = utils::get_uri(&backend_url)?;
@@ -128,7 +128,8 @@ impl L8RequestObject {
                         serde_json::to_value(&format!(
                             "multipart/form-data; boundary={}",
                             boundary
-                        )).expect_throw("a valid string is JSON serializable"),
+                        ))
+                        .expect_throw("a valid string is JSON serializable"),
                     );
 
                     req_wrapper.body = data;
@@ -197,8 +198,7 @@ impl L8RequestObject {
         &self,
         network_state_open: &NetworkStateOpen,
         reinitialize_attempt: bool,
-    ) -> Result<NetworkStateResponse, JsValue>
-    {
+    ) -> Result<NetworkStateResponse, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
@@ -217,9 +217,9 @@ impl L8RequestObject {
                 nonce: nonce.to_vec(),
                 data: encrypted,
             })
-                .map_err(|e| {
-                    JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e))
-                })?
+            .map_err(|e| {
+                JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e))
+            })?
         };
 
         let mut req_builder = network_state_open
@@ -266,14 +266,19 @@ impl L8RequestObject {
         network_state_open: &NetworkStateOpen,
         reinitialize_attempt: bool,
         response: reqwest::Response,
-    ) -> Result<NetworkStateResponse, JsValue>
-    {
+    ) -> Result<NetworkStateResponse, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
 
         // status >= 400
         if response.status() >= reqwest::StatusCode::BAD_REQUEST {
             if dev_flag {
-                console::log_1(&format!("Received error response from the proxy server: {}", response.status()).into());
+                console::log_1(
+                    &format!(
+                        "Received error response from the proxy server: {}",
+                        response.status()
+                    )
+                    .into(),
+                );
             }
 
             // we can reinitialize the network state
@@ -281,14 +286,16 @@ impl L8RequestObject {
                 return Ok(NetworkStateResponse::Reinitialize);
             }
 
-            return Ok(NetworkStateResponse::ProxyError(JsValue::from_str(&format!(
-                "Unexpected response from the proxy server: {}; With body: {}",
-                response.status(),
-                response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "No response body".to_string())
-            ))));
+            return Ok(NetworkStateResponse::ProxyError(JsValue::from_str(
+                &format!(
+                    "Unexpected response from the proxy server: {}; With body: {}",
+                    response.status(),
+                    response
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "No response body".to_string())
+                ),
+            )));
         }
 
         let body = &response
@@ -378,11 +385,10 @@ impl L8RequestObject {
             .unwrap_or_else(|| "".to_string()); // "" — The request does not have an integrity value.
 
         // is_history_navigation
-        self.is_history_navigation =
-            js_sys::Reflect::get(&options, &"isHistoryNavigation".into())
-                .ok()
-                .and_then(|val| val.as_bool())
-                .unwrap_or(false); // false — The request is not a history navigation.
+        self.is_history_navigation = js_sys::Reflect::get(&options, &"isHistoryNavigation".into())
+            .ok()
+            .and_then(|val| val.as_bool())
+            .unwrap_or(false); // false — The request is not a history navigation.
 
         // keepalive
         _ = js_sys::Reflect::get(&options, &"keepalive".into())

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use web_sys::{RequestMode, ReferrerPolicy};
+use web_sys::{ReferrerPolicy, RequestMode};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum L8RequestMode {
@@ -41,5 +41,5 @@ pub fn get_request_referer_policy(options: &web_sys::RequestInit) -> &str {
             _ => "",
         };
     }
-    return ""
+    return "";
 }
