@@ -11,8 +11,8 @@ use body::L8BodyType;
 use mode_and_policies::{L8RequestMode, get_request_referer_policy};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt, throw_str};
-use web_sys::{AbortSignal, Request, RequestInit, ResponseInit, console};
+use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
+use web_sys::{AbortSignal, Request, RequestInit, console};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -289,34 +289,8 @@ impl L8RequestObject {
         }
 
         // convert L8ResponseObject to web_sys::Response
-        let resp_init = ResponseInit::new();
-        resp_init.set_status(l8_response.status);
-        resp_init.set_status_text(&l8_response.status_text);
-
-        let js_headers = web_sys::Headers::new().expect_throw("Failed to create Headers object");
-        for (key, value) in l8_response.headers {
-            let value = serde_json::to_string(&value).expect_throw(
-                "we expect the header value to be serializable as a JSON string at compile time",
-            );
-
-            js_headers
-                .append(&key, &value)
-                .expect_throw("Failed to append header to Headers object");
-        }
-        resp_init.set_headers(&js_headers);
-
-        let array = js_sys::Uint8Array::new_with_length(l8_response.body.len() as u32);
-        array.copy_from(&l8_response.body);
-
-        match web_sys::Response::new_with_opt_js_u8_array_and_init(Some(&array), &resp_init) {
-            Ok(response) => Ok(NetworkStateResponse::ProviderResponse(response)),
-            Err(err) => {
-                throw_str(&format!(
-                    "Failed to construct JS Response: {:?}",
-                    err.as_string()
-                ));
-            }
-        }
+        let js_response = l8_response.reconstruct_js_response()?;
+        Ok(NetworkStateResponse::ProviderResponse(js_response))
     }
 
     // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/Request>

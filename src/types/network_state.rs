@@ -1,8 +1,8 @@
+use crate::init_tunnel::InitTunnelResult;
+use crate::types::WasmEncryptedMessage;
 use bytes::Bytes;
 use ntor::common::NTorParty;
-use crate::init_tunnel::InitTunnelResult;
 use wasm_bindgen::prelude::*;
-use crate::types::WasmEncryptedMessage;
 
 /// Represents the current state of the network connection for a service provider.
 #[derive(Debug)]
@@ -36,19 +36,17 @@ pub enum NetworkStateResponse {
 
 impl NetworkStateOpen {
     pub fn ntor_encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, JsValue> {
-        let (nonce, encrypted) = self.init_tunnel_result
+        let (nonce, encrypted) = self
+            .init_tunnel_result
             .client
             .wasm_encrypt(data)
-            .map_err(|e| {
-                JsValue::from_str(&format!("Failed to encrypt data: {}", e))
-            })?;
+            .map_err(|e| JsValue::from_str(&format!("Failed to encrypt data: {}", e)))?;
 
         let msg = serde_json::to_vec(&WasmEncryptedMessage {
             nonce: nonce.to_vec(),
             data: encrypted,
-        }).map_err(|e| {
-            JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e))
-        })?;
+        })
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e)))?;
 
         Ok(msg)
     }
