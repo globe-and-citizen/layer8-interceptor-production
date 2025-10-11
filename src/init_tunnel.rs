@@ -18,7 +18,6 @@ use crate::types::{
 use crate::utils;
 
 #[derive(Clone)]
-#[wasm_bindgen(getter_with_clone)]
 pub struct InitTunnelResult {
     pub(crate) client: NTorClient,
     pub(crate) int_rp_jwt: String,

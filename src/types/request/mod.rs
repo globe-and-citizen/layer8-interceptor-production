@@ -3,14 +3,12 @@ mod mode_and_policies;
 
 use crate::storage::InMemoryCache;
 use crate::types::{
-    WasmEncryptedMessage,
     network_state::{NetworkStateOpen, NetworkStateResponse},
     response::L8ResponseObject,
 };
 use crate::utils;
 use body::L8BodyType;
 use mode_and_policies::{L8RequestMode, get_request_referer_policy};
-use ntor::common::NTorParty;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt, throw_str};
@@ -204,36 +202,14 @@ impl L8RequestObject {
             "we expect the L8requestObject to be asserted as json serializable at compile time",
         );
 
-        let msg = {
-            let (nonce, encrypted) = network_state_open
-                .init_tunnel_result
-                .client
-                .wasm_encrypt(data)
-                .map_err(|e| {
-                    JsValue::from_str(&format!("Failed to encrypt request data: {}", e))
-                })?;
-
-            serde_json::to_vec(&WasmEncryptedMessage {
-                nonce: nonce.to_vec(),
-                data: encrypted,
-            })
-            .map_err(|e| {
-                JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e))
-            })?
-        };
+        let msg = network_state_open.ntor_encrypt(data)?;
 
         let mut req_builder = network_state_open
             .http_client
             .post(format!("{}/proxy", network_state_open.forward_proxy_url))
             .header("content-type", "application/json")
-            .header(
-                "int_rp_jwt",
-                network_state_open.init_tunnel_result.int_rp_jwt.clone(),
-            )
-            .header(
-                "int_fp_jwt",
-                network_state_open.init_tunnel_result.int_fp_jwt.clone(),
-            )
+            .header("int_rp_jwt", network_state_open.int_rp_jwt())
+            .header("int_fp_jwt", network_state_open.int_fp_jwt())
             .body(msg);
 
         if self.body.is_empty() {
@@ -303,19 +279,7 @@ impl L8RequestObject {
             .await
             .map_err(|e| JsValue::from_str(&format!("Failed to read response body: {}", e)))?;
 
-        let encrypted_data =
-            serde_json::from_slice::<WasmEncryptedMessage>(&body).map_err(|e| {
-                JsValue::from_str(&format!(
-                    "Failed to deserialize EncryptedMessage body: {}",
-                    e
-                ))
-            })?;
-
-        let decrypted_response = network_state_open
-            .init_tunnel_result
-            .client
-            .wasm_decrypt(encrypted_data.nonce, encrypted_data.data)
-            .map_err(|e| JsValue::from_str(&format!("Failed to decrypt response data: {}", e)))?;
+        let decrypted_response = network_state_open.ntor_decrypt(body)?;
 
         let l8_response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)
             .map_err(|e| JsValue::from_str(&format!("Failed to deserialize response: {}", e)))?;
