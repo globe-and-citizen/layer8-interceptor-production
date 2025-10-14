@@ -17,7 +17,7 @@ pub(crate) enum NetworkState {
 
 /// This is the state of the network connection for a service provider when it has
 /// completed key exchange and is ready to be used.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct NetworkStateOpen {
     pub http_client: reqwest::Client,
     pub init_tunnel_result: InitTunnelResult,

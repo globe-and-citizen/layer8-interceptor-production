@@ -19,7 +19,7 @@ thread_local! {
 pub(crate) struct InMemoryCache {}
 
 impl InMemoryCache {
-    pub(crate) async fn get_network_state(provider_url: &str) -> Result<Rc<NetworkState>, JsValue> {
+    pub(crate) async fn get_network_state(provider_url: &str) -> Result<NetworkStateOpen, JsValue> {
         let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
         loop {
             let network_state = NETWORK_STATE_MAP
@@ -32,7 +32,7 @@ impl InMemoryCache {
                 })?;
 
             match network_state.as_ref() {
-                NetworkState::OPEN { .. } => return Ok(network_state),
+                NetworkState::OPEN(state) => return Ok(state.clone()),
                 NetworkState::ERRORED(err) => return Err(err.clone()),
                 NetworkState::CONNECTING => {
                     if dev_flag {
