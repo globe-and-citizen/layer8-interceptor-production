@@ -1,6 +1,6 @@
 [package]
 name = "layer8-interceptor-production"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2024"
 
 [profile.release]
@@ -56,7 +56,7 @@ reqwest = { version = "0.12.15", features = ["json"] }
 serde_json = "1.0.140"
 serde-wasm-bindgen = "0.6.5"
 js-sys = "0.3.77"
-ntor = { git = "https://github.com/globe-and-citizen/ntor.git", branch = "feat/provide-bincode-serde" }
+ntor = { git = "https://github.com/globe-and-citizen/ntor.git", tag = "0.1.2" }
 serde = { version = "1.0.219", features = ["derive"] }
 wasm-streams = "0.4.2"
 url = "2.5.4"
