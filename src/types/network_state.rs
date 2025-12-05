@@ -41,9 +41,8 @@ impl NetworkStateOpen {
             .wasm_encrypt(data)
             .map_err(|e| JsValue::from_str(&format!("Failed to encrypt data: {}", e)))?;
 
-        let nonce = TryInto::<[u8; 12]>::try_into(nonce).map_err(|_e| {
-            JsValue::from_str(&format!("Failed to convert nonce to array of 12 bytes"))
-        })?;
+        let nonce = TryInto::<[u8; 12]>::try_into(nonce)
+            .map_err(|_e| JsValue::from_str("Failed to convert nonce to array of 12 bytes"))?;
 
         let msg = bincode::encode_to_vec(
             &EncryptedMessage {
