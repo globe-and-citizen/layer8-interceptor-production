@@ -1,7 +1,6 @@
 use crate::init_tunnel::InitTunnelResult;
-use crate::types::WasmEncryptedMessage;
 use bytes::Bytes;
-use ntor::common::NTorParty;
+use ntor::common::{EncryptedMessage, NTorParty};
 use wasm_bindgen::prelude::*;
 
 /// Represents the current state of the network connection for a service provider.
@@ -42,10 +41,16 @@ impl NetworkStateOpen {
             .wasm_encrypt(data)
             .map_err(|e| JsValue::from_str(&format!("Failed to encrypt data: {}", e)))?;
 
-        let msg = serde_json::to_vec(&WasmEncryptedMessage {
-            nonce: nonce.to_vec(),
-            data: encrypted,
-        })
+        let nonce = TryInto::<[u8; 12]>::try_into(nonce)
+            .map_err(|_e| JsValue::from_str("Failed to convert nonce to array of 12 bytes"))?;
+
+        let msg = bincode::encode_to_vec(
+            &EncryptedMessage {
+                nonce,
+                data: encrypted,
+            },
+            bincode::config::standard(),
+        )
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize encrypted message: {}", e)))?;
 
         Ok(msg)
@@ -53,17 +58,15 @@ impl NetworkStateOpen {
 
     pub fn ntor_decrypt(&self, data: &Bytes) -> Result<Vec<u8>, JsValue> {
         let encrypted_data =
-            serde_json::from_slice::<WasmEncryptedMessage>(&data).map_err(|e| {
-                JsValue::from_str(&format!(
-                    "Failed to deserialize EncryptedMessage body: {}",
-                    e
-                ))
-            })?;
+            bincode::decode_from_slice::<EncryptedMessage, _>(data, bincode::config::standard())
+                .map_err(|e| {
+                    JsValue::from_str(&format!("Failed to deserialize encrypted message: {}", e))
+                })?;
 
         let decrypted_response = self
             .init_tunnel_result
             .client
-            .wasm_decrypt(encrypted_data.nonce, encrypted_data.data)
+            .wasm_decrypt(encrypted_data.0.nonce.to_vec(), encrypted_data.0.data)
             .map_err(|e| JsValue::from_str(&format!("Failed to decrypt data: {}", e)))?;
 
         Ok(decrypted_response)
