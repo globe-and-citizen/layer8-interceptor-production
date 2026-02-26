@@ -77,7 +77,7 @@ impl L8RequestObject {
             }
         };
 
-        return Self::from_request_options(uri, options).await;
+        Self::from_request_options(uri, options).await
     }
 
     async fn from_request_options(mut uri: String, options: RequestInit) -> Result<Self, JsValue> {
@@ -186,7 +186,7 @@ impl L8RequestObject {
 
         req_wrapper.headers = utils::headers_to_reqwest_headers(JsValue::from(req.headers()))?;
         req_wrapper.mode = Some(L8RequestMode::Cors); // Default mode for Request objects
-        return Ok(req_wrapper);
+        Ok(req_wrapper)
     }
 
     /// Sends the request using the Layer8 network state.
@@ -222,7 +222,7 @@ impl L8RequestObject {
             }
         });
 
-        return match response_result {
+        match response_result {
             Ok(resp) => Self::handle_response(network_state_open, reinitialize_attempt, resp).await,
             Err(err) => {
                 // we can reinitialize the network state
@@ -235,7 +235,7 @@ impl L8RequestObject {
                     err
                 )))
             }
-        };
+        }
     }
 
     async fn handle_response(

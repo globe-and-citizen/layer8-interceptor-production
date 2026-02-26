@@ -41,5 +41,5 @@ pub fn get_request_referer_policy(options: &web_sys::RequestInit) -> &str {
             _ => "",
         };
     }
-    return "";
+    ""
 }

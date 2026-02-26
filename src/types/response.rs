@@ -1,7 +1,8 @@
 use serde::Deserialize;
 use std::collections::HashMap;
-use wasm_bindgen::{JsValue, UnwrapThrowExt, throw_str};
-use web_sys::ResponseInit;
+use wasm_bindgen::{JsValue, throw_str};
+use web_sys::{ResponseInit};
+use crate::utils;
 
 #[derive(Deserialize, Debug)]
 pub struct L8ResponseObject {
@@ -26,16 +27,7 @@ impl L8ResponseObject {
         resp_init.set_status(self.status);
         resp_init.set_status_text(&self.status_text);
 
-        let js_headers = web_sys::Headers::new().expect_throw("Failed to create Headers object");
-        for (key, value) in self.headers.clone() {
-            let value = serde_json::to_string(&value).expect_throw(
-                "we expect the header value to be serializable as a JSON string at compile time",
-            );
-
-            js_headers
-                .append(&key, &value)
-                .expect_throw("Failed to append header to Headers object");
-        }
+        let js_headers = utils::hashmap_to_js_headers(&self.headers)?;
         resp_init.set_headers(&js_headers);
 
         let array = js_sys::Uint8Array::new_with_length(self.body.len() as u32);

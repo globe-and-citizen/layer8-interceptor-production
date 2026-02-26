@@ -60,7 +60,7 @@ impl InitTunnelResponse {
         let server_certificate =
             NTorCertificate::new(self.static_public_key.clone(), self.server_id.clone());
 
-        return client.handle_response_from_server(&server_certificate, &init_msg_response);
+        client.handle_response_from_server(&server_certificate, &init_msg_response)
     }
 }
 
