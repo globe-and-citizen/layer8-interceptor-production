@@ -1,6 +1,6 @@
 [package]
-name = "layer8-interceptor-production"
-version = "0.4.0"
+name = "layer8-interceptor"
+version = "0.4.1"
 edition = "2024"
 
 [profile.release]
