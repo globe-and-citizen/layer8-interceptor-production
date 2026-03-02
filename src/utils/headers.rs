@@ -104,7 +104,7 @@ pub fn hashmap_to_js_headers(
             .append(&key, &value)
             .expect_throw("Failed to append header to Headers object");
 
-        console::log_1(&format!("js header: {}: {}", key, value).into());
+        // console::log_1(&format!("js header: {}: {}", key, value).into());
     }
     Ok(js_headers)
 }

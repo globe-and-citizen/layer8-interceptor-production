@@ -1,4 +1,3 @@
-mod cookie;
 mod print;
 mod headers;
 mod body;
@@ -6,9 +5,7 @@ use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 
 pub use headers::*;
 pub use print::*;
-pub use cookie::*;
 pub use body::*;
-
 
 pub(crate) async fn sleep(delay: i32) {
     let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {

@@ -52,7 +52,7 @@ web-sys = { version = "0.3.77", features = [
     "Window",
     "Document",
 ] }
-reqwest = { version = "0.12.15", features = ["json"] }
+reqwest = { version = "0.12.15", features = ["json", "cookies"] }
 serde_json = "1.0.140"
 serde-wasm-bindgen = "0.6.5"
 js-sys = "0.3.77"

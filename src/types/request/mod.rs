@@ -210,6 +210,7 @@ impl L8RequestObject {
             .header("content-type", "application/json")
             .header("int_rp_jwt", network_state_open.int_rp_jwt())
             .header("int_fp_jwt", network_state_open.int_fp_jwt())
+            .fetch_credentials_include()
             .body(msg);
 
         if self.body.is_empty() {

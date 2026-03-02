@@ -33,6 +33,7 @@ impl L8ResponseObject {
         let array = js_sys::Uint8Array::new_with_length(self.body.len() as u32);
         array.copy_from(&self.body);
 
+        // we lost Set-Cookie header here
         match web_sys::Response::new_with_opt_js_u8_array_and_init(Some(&array), &resp_init) {
             Ok(response) => Ok(response),
             Err(err) => {
