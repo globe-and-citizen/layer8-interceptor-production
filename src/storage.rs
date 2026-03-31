@@ -78,7 +78,7 @@ impl InMemoryCache {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     pub(crate) fn get_dev_flag() -> bool {

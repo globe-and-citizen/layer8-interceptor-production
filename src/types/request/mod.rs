@@ -3,14 +3,14 @@ mod mode_and_policies;
 
 use crate::storage::InMemoryCache;
 use crate::types::{
-    network_state::{NetworkStateOpen, NetworkStateResponse},
-    response::L8ResponseObject,
+    network_state::NetworkStateOpen,
 };
 use crate::utils;
 use body::L8BodyType;
 use mode_and_policies::{L8RequestMode, get_request_referer_policy};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use reqwest::Response;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::{AbortSignal, Request, RequestInit, console};
 
@@ -127,7 +127,7 @@ impl L8RequestObject {
                             "multipart/form-data; boundary={}",
                             boundary
                         ))
-                        .expect_throw("a valid string is JSON serializable"),
+                            .expect_throw("a valid string is JSON serializable"),
                     );
 
                     req_wrapper.body = data;
@@ -195,8 +195,7 @@ impl L8RequestObject {
     pub(crate) async fn l8_send(
         &self,
         network_state_open: &NetworkStateOpen,
-        reinitialize_attempt: bool,
-    ) -> Result<NetworkStateResponse, JsValue> {
+    ) -> Result<Response, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
@@ -217,18 +216,11 @@ impl L8RequestObject {
             req_builder = req_builder.header("x-empty-body", "true");
         }
 
-        let response_result = req_builder.send().await.inspect_err(|e| {
-            if dev_flag {
-                console::error_1(&format!("Request failed with error: {}", e).into());
-            }
-        });
-
-        match response_result {
-            Ok(resp) => Self::handle_response(network_state_open, reinitialize_attempt, resp).await,
+        match req_builder.send().await {
+            Ok(res) => Ok(res),
             Err(err) => {
-                // we can reinitialize the network state
-                if reinitialize_attempt {
-                    return Ok(NetworkStateResponse::Reinitialize);
+                if dev_flag {
+                    console::error_1(&format!("Request failed with error: {}", err).into());
                 }
 
                 Err(JsValue::from_str(&format!(
@@ -237,61 +229,6 @@ impl L8RequestObject {
                 )))
             }
         }
-    }
-
-    async fn handle_response(
-        network_state_open: &NetworkStateOpen,
-        reinitialize_attempt: bool,
-        response: reqwest::Response,
-    ) -> Result<NetworkStateResponse, JsValue> {
-        let dev_flag = InMemoryCache::get_dev_flag();
-
-        // status >= 400
-        if response.status() >= reqwest::StatusCode::BAD_REQUEST {
-            if dev_flag {
-                console::log_1(
-                    &format!(
-                        "Received error response from the proxy server: {}",
-                        response.status()
-                    )
-                    .into(),
-                );
-            }
-
-            // we can reinitialize the network state
-            if reinitialize_attempt {
-                return Ok(NetworkStateResponse::Reinitialize);
-            }
-
-            return Ok(NetworkStateResponse::ProxyError(JsValue::from_str(
-                &format!(
-                    "Unexpected response from the proxy server: {}; With body: {}",
-                    response.status(),
-                    response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "No response body".to_string())
-                ),
-            )));
-        }
-
-        let body = &response
-            .bytes()
-            .await
-            .map_err(|e| JsValue::from_str(&format!("Failed to read response body: {}", e)))?;
-
-        let decrypted_response = network_state_open.ntor_decrypt(body)?;
-
-        let l8_response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)
-            .map_err(|e| JsValue::from_str(&format!("Failed to deserialize response: {}", e)))?;
-
-        if dev_flag {
-            console::log_1(&format!("Response: {:?}", l8_response).into());
-        }
-
-        // convert L8ResponseObject to web_sys::Response
-        let js_response = l8_response.reconstruct_js_response()?;
-        Ok(NetworkStateResponse::ProviderResponse(js_response))
     }
 
     // Ref: <https://developer.mozilla.org/en-US/docs/Web/API/Request>
