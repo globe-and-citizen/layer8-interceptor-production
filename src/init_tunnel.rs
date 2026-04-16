@@ -74,17 +74,32 @@ impl Debug for InitTunnelResult {
     }
 }
 
-/// Establishes `init-tunnel` request to the backend server and performs NTor key exchange.
-/// # Arguments
-/// * `backend_url` - The `init-tunnel` endpoint of the target server (forward-proxy) includes reverse-proxy's url as a param
-/// (eg. https://fp.layer8.net/init-tunnel?backend_url=https://backendwithreverseproxy.layer8.net)
-/// * `http_caller` - An implementation of the `HttpCaller` trait to send HTTP requests (either real http call or mock test).
+/// Establishes an `init-tunnel` request with the forward-proxy, performs the NTor key exchange,
+/// and returns an `InitTunnelResult` containing the negotiated `NTorClient` and JWT tokens.
+///
+/// # Parameters
+/// * `backend_url` - The `init-tunnel` endpoint on the forward-proxy. The forward-proxy expects a
+///   `backend_url` query parameter which points to the backend (e.g.
+///   `https://fp.example.com/init-tunnel?backend_url=https://backend.example.com`).
+/// * `http_caller` - An implementation of the `HttpCaller` trait used to send the HTTP request
+///   (for example `ActualHttpCaller` in production or a mock in tests).
+///
+/// # Behavior
+/// * Generates the NTor client initialisation message and sends it as JSON `{ "public_key": ... }`.
+/// * Retries the request up to `INIT_TUNNEL_RETRY_ATTEMPTS` with
+///   `INIT_TUNNEL_RETRY_SLEEP_DELAY` between attempts on failure.
+/// * Deserializes the response into `InitTunnelResponse` and completes the NTor handshake.
+/// * On success returns an `InitTunnelResult` with the established `NTorClient` and JWTs.
+///
 /// # Returns
-/// * `InitTunnelResult` if success - Contains the NTor Client and JWT tokens for further communication.
-/// * Error if any step fails during the process:
-///     - Sending request to backend failed (after INIT_TUNNEL_RETRY_ATTEMPTS retries)
-///     - Processing the response failed
-///     - NTor handshake failed
+/// `Result<InitTunnelResult, JsValue>` - `Ok` on success; `Err(JsValue)` when:
+/// * sending the request failed after retries;
+/// * the response body could not be read or deserialized;
+/// * the NTor handshake failed.
+///
+/// # Notes
+/// When dev logging is enabled (`InMemoryCache::get_dev_flag()`), errors and the NTor shared secret
+/// are logged to the web console for debugging.
 pub async fn init_tunnel(
     backend_url: String,
     http_caller: impl HttpCaller,
@@ -178,8 +193,25 @@ pub async fn init_tunnel(
     Ok(init_tunnel_result)
 }
 
-/// This function initializes the encrypted tunnel for the given service providers using a background process, which updates
-/// the `NETWORK_STATE` global static.
+/// Initializes encrypted tunnels for the given service providers.
+///
+/// Spawns background tasks that perform the `init-tunnel` HTTP handshake with the forward-proxy,
+/// complete the NTor key exchange, and update the global network state for each provider.
+///
+/// # Parameters:
+/// * `forward_proxy_url` - URL of the forward proxy (e.g. `https://fp.example.com`).
+/// * `service_providers` - Vector of `ServiceProvider` entries to initialize tunnels for.
+/// * `dev_flag` - Optional boolean to enable verbose/dev logging.
+///
+/// # Behavior:
+/// * Sets the network state to `connecting` for each provider before scheduling work.
+/// * Constructs the `init-tunnel` backend URL and spawns a local async task to call `init_tunnel`.
+/// * On success, stores a `NetworkStateOpen` containing an HTTP client, the NTor result and the forward-proxy URL.
+/// * On failure, stores an errored network state with the returned error.
+///
+/// # Returns:
+/// * `Ok(())` when background tasks were scheduled successfully.
+/// * `Err(JsValue)` if building the backend URL fails synchronously.
 #[wasm_bindgen(js_name = "initEncryptedTunnel")]
 pub fn init_encrypted_tunnels(
     forward_proxy_url: String,
