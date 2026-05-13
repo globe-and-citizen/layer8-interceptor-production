@@ -61,19 +61,19 @@ pub async fn fetch(
             }
 
             NetworkStateResponse::Reinitialize => {
-                let backend_url = format!(
+                let request_url = format!(
                     "{}/init-tunnel?backend_url={}",
                     network_state_open.forward_proxy_url, backend_base_url
                 );
 
                 if dev_flag {
                     console::log_1(
-                        &format!("Reinitializing network state for {}", backend_url).into(),
+                        &format!("Reinitializing network state for {}", request_url).into(),
                     );
                 }
 
                 // creating a new NetworkState and overwriting the existing one
-                let val = init_tunnel(backend_url, ActualHttpCaller).await?;
+                let val = init_tunnel(request_url, ActualHttpCaller).await?;
                 let state = NetworkStateOpen {
                     http_client: reqwest::Client::new(),
                     init_tunnel_result: val.clone(),

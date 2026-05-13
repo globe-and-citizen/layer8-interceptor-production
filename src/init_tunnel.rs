@@ -43,12 +43,9 @@ impl InitTunnelResult {
 pub struct InitTunnelResponse {
     pub ephemeral_public_key: Vec<u8>,
     pub t_b_hash: Vec<u8>,
-    #[serde(rename = "jwt1")]
     pub int_rp_jwt: String,
-    #[serde(rename = "jwt2")]
     pub int_fp_jwt: String,
     pub server_id: String,
-    #[serde(rename = "public_key")]
     pub static_public_key: Vec<u8>,
 }
 
@@ -86,7 +83,7 @@ impl Debug for InitTunnelResult {
 ///     - Processing the response failed
 ///     - NTor handshake failed
 pub async fn init_tunnel(
-    backend_url: String,
+    request_url: String,
     http_caller: impl HttpCaller,
 ) -> Result<InitTunnelResult, JsValue> {
     let dev_flag = InMemoryCache::get_dev_flag();
@@ -104,7 +101,7 @@ pub async fn init_tunnel(
         retry_attempt += 1;
 
         let req_builder = reqwest::Client::new()
-            .post(backend_url.clone())
+            .post(request_url.clone())
             .header("Content-Length", "application/json")
             .header("Retry-count", retry_attempt)
             .body(request_body.to_string());
