@@ -86,10 +86,10 @@ impl HttpCaller for MockHttpCaller {
             let response = json!({
                 "ephemeral_public_key": init_session_response.public_key(),
                 "t_b_hash": init_session_response.t_b_hash(),
-                "public_key": cert.public_key(),
+                "static_public_key": cert.public_key(),
                 "server_id": server_id,
-                "jwt1": "test_jwt1",
-                "jwt2": "test_jwt2",
+                "int_rp_jwt": "test_jwt1",
+                "int_fp_jwt": "test_jwt2",
             });
 
             return Ok(HttpCallerResponse::Raw(

@@ -43,16 +43,17 @@ impl InitTunnelResult {
 pub struct InitTunnelResponse {
     pub ephemeral_public_key: Vec<u8>,
     pub t_b_hash: Vec<u8>,
-    #[serde(rename = "jwt1")]
     pub int_rp_jwt: String,
-    #[serde(rename = "jwt2")]
     pub int_fp_jwt: String,
     pub server_id: String,
-    #[serde(rename = "public_key")]
     pub static_public_key: Vec<u8>,
 }
 
 impl InitTunnelResponse {
+    fn from_bytes(bytes: &[u8]) -> Self {
+        serde_json::from_slice(bytes).expect_throw("Failed to deserialize bytes to InitTunnelResponse")
+    }
+
     fn compute_ntor_handshake(&self, client: &mut NTorClient) -> bool {
         let init_msg_response =
             InitSessionResponse::new(self.ephemeral_public_key.clone(), self.t_b_hash.clone());
@@ -86,7 +87,7 @@ impl Debug for InitTunnelResult {
 ///     - Processing the response failed
 ///     - NTor handshake failed
 pub async fn init_tunnel(
-    backend_url: String,
+    request_url: String,
     http_caller: impl HttpCaller,
 ) -> Result<InitTunnelResult, JsValue> {
     let dev_flag = InMemoryCache::get_dev_flag();
@@ -104,7 +105,7 @@ pub async fn init_tunnel(
         retry_attempt += 1;
 
         let req_builder = reqwest::Client::new()
-            .post(backend_url.clone())
+            .post(request_url.clone())
             .header("Content-Length", "application/json")
             .header("Retry-count", retry_attempt)
             .body(request_body.to_string());
@@ -141,17 +142,13 @@ pub async fn init_tunnel(
 
     // 3. Parse the response
     let response_body = match response.bytes().await {
-        Ok(bytes) => serde_json::from_slice::<InitTunnelResponse>(&bytes)
-            .expect_throw("Failed to deserialize response body to InitTunnelResponse"),
+        Ok(bytes) => InitTunnelResponse::from_bytes(&bytes),
         Err(err) => {
             if dev_flag {
                 console::error_1(&format!("Cannot read response body: {}", err).into());
             }
 
-            return Err(JsValue::from_str(&format!(
-                "Cannot read response body: {:?}",
-                err
-            )));
+            return Err(JsValue::from_str(&format!("Cannot read response body: {:?}", err)));
         }
     };
 
