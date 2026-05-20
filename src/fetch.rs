@@ -11,10 +11,29 @@ use crate::types::{
 use crate::{constants, utils};
 use crate::types::response::handle_response;
 
-/// This API is expected to be a 1:1 mapping of the Fetch API.
-/// Arguments:
-/// - `resource`: The resource to fetch, which can be a string, a URL object or a Request object.
-/// - `options`: Optional configuration for the fetch request, which can include headers, method, body, etc.
+/// Performs an HTTP request compatible with the Web Fetch API, routed through an internal proxy/tunnel.
+/// Behavior:
+/// - Async function returning `Result<Response, JsValue>`.
+/// - Uses `InMemoryCache` to store and retrieve network state (forward proxy URL and tunnel init result).
+/// - Resolves the target URL and backend base URL via `utils`.
+/// - Constructs an `L8RequestObject` containing request data (backend URL, original `resource`, `options`) and sends it using the current `NetworkStateOpen`.
+/// - On network/proxy errors, attempts to reinitialize the tunnel and retry the request.
+///
+/// Retry and reinitialization:
+/// - Performs up to `constants::FETCH_RETRY_ATTEMPTS` reinitialization attempts (plus the initial request).
+/// - On send errors calls `init_tunnel` at `{forward_proxy_url}/init-tunnel?backend_url={backend_base_url}` and saves the result in `InMemoryCache`.
+/// - If attempts are exhausted or the proxy returns an explicit error, returns `Err(JsValue)`.
+///
+/// Logging:
+/// - When `dev_flag` is set, logs additional messages to the console (`web_sys::console`) during reinitialization and on errors.
+///
+/// Parameters:
+/// - `resource`: `JsValue` — string, `Url` or `Request` specifying the request target.
+/// - `options`: `Option<RequestInit>` — optional fetch init (method, headers, body, etc.).
+///
+/// Returns:
+/// - `Ok(web_sys::Response)` on successful provider response.
+/// - `Err(JsValue)` on network/proxy errors or failed tunnel initialization.
 #[wasm_bindgen]
 pub async fn fetch(
     resource: JsValue,
