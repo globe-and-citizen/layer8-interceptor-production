@@ -10,9 +10,9 @@ use body::L8BodyType;
 use mode_and_policies::{L8RequestMode, get_request_referer_policy};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use reqwest::Response;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::{AbortSignal, Request, RequestInit, console};
+use crate::types::http_caller::{HttpCaller, HttpCallerResponse};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -47,7 +47,7 @@ pub struct L8RequestObject {
 
 impl L8RequestObject {
     /// Creates a new L8RequestObject from the given resource or options.
-    pub(crate) async fn new(
+    pub async fn new(
         backend_url: String,
         resource: JsValue,
         options: Option<RequestInit>,
@@ -195,7 +195,8 @@ impl L8RequestObject {
     pub(crate) async fn l8_send(
         &self,
         network_state_open: &NetworkStateOpen,
-    ) -> Result<Response, JsValue> {
+        http_caller: impl HttpCaller,
+    ) -> Result<HttpCallerResponse, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
         let data = serde_json::to_vec(&self).expect_throw(
             "we expect the L8requestObject to be asserted as json serializable at compile time",
@@ -216,7 +217,7 @@ impl L8RequestObject {
             req_builder = req_builder.header("x-empty-body", "true");
         }
 
-        match req_builder.send().await {
+        match http_caller.clone().send(req_builder).await {
             Ok(res) => Ok(res),
             Err(err) => {
                 if dev_flag {

@@ -19,9 +19,9 @@ use crate::utils;
 
 #[derive(Clone)]
 pub struct InitTunnelResult {
-    pub(crate) client: NTorClient,
-    pub(crate) int_rp_jwt: String,
-    pub(crate) int_fp_jwt: String,
+    pub client: NTorClient,
+    pub int_rp_jwt: String,
+    pub int_fp_jwt: String,
 }
 
 impl InitTunnelResult {

@@ -31,7 +31,7 @@ pub async fn fetch(
     loop {
         let network_state_open = InMemoryCache::get_network_state(&backend_base_url).await?;
 
-        let resp = match req_object.l8_send(&network_state_open).await {
+        let resp = match req_object.l8_send(&network_state_open, ActualHttpCaller).await {
             Ok(resp) => handle_response(&network_state_open, attempts > 0, resp).await?,
             Err(err) => {
                 // we can reinitialize the network state

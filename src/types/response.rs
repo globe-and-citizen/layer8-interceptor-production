@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use wasm_bindgen::{JsValue, throw_str};
 use web_sys::{console, ResponseInit};
 use crate::storage::InMemoryCache;
+use crate::types::http_caller::HttpCallerResponse;
 use crate::types::network_state::{NetworkStateOpen, NetworkStateResponse};
 use crate::utils;
 
@@ -51,7 +52,7 @@ impl L8ResponseObject {
 pub async fn handle_response(
     network_state_open: &NetworkStateOpen,
     reinitialize_attempt: bool,
-    response: reqwest::Response,
+    response: HttpCallerResponse,
 ) -> Result<NetworkStateResponse, JsValue> {
     let dev_flag = InMemoryCache::get_dev_flag();
 
