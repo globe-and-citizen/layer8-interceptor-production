@@ -1,5 +1,5 @@
 mod body;
-mod mode_and_policies;
+pub mod mode_and_policies;
 
 use crate::storage::InMemoryCache;
 use crate::types::{
@@ -11,11 +11,11 @@ use mode_and_policies::{L8RequestMode, get_request_referer_policy};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
-use web_sys::{AbortSignal, Request, RequestInit, console};
+use web_sys::{AbortSignal, console};
 use crate::types::http_caller::{HttpCaller, HttpCallerResponse};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct L8RequestObject {
     pub uri: String,
     pub method: String,
@@ -50,7 +50,7 @@ impl L8RequestObject {
     pub async fn new(
         backend_url: String,
         resource: JsValue,
-        options: Option<RequestInit>,
+        options: Option<web_sys::RequestInit>,
     ) -> Result<Self, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
 
@@ -61,7 +61,7 @@ impl L8RequestObject {
         }
 
         // using the Request object to fetch the resource
-        if let Some(req) = resource.dyn_ref::<Request>() {
+        if let Some(req) = resource.dyn_ref::<web_sys::Request>() {
             return Self::from_web_sys_request_object(uri.clone(), req).await;
         }
 
@@ -80,7 +80,8 @@ impl L8RequestObject {
         Self::from_request_options(uri, options).await
     }
 
-    async fn from_request_options(mut uri: String, options: RequestInit) -> Result<Self, JsValue> {
+    /// Create a L8RequestObject instance from a web_sys::RequestInit object
+    async fn from_request_options(mut uri: String, options: web_sys::RequestInit) -> Result<Self, JsValue> {
         // Using the resource URL and options object to fetch the resource
         let mut req_wrapper = L8RequestObject {
             uri: uri.clone(),
@@ -165,7 +166,8 @@ impl L8RequestObject {
         Ok(req_wrapper)
     }
 
-    async fn from_web_sys_request_object(uri: String, req: &Request) -> Result<Self, JsValue> {
+    /// Create a L8RequestObject instance from a web_sys::Request object
+    async fn from_web_sys_request_object(uri: String, req: &web_sys::Request) -> Result<Self, JsValue> {
         let mut req_wrapper = L8RequestObject {
             method: req.method().to_string().trim().to_uppercase(),
             uri,
@@ -192,7 +194,7 @@ impl L8RequestObject {
     /// Sends the request using the Layer8 network state.
     /// This method can recurse only once to retry sending the request if it fails.
     /// If the request fails again, it will return an error.
-    pub(crate) async fn l8_send(
+    pub async fn l8_send(
         &self,
         network_state_open: &NetworkStateOpen,
         http_caller: impl HttpCaller,
@@ -203,6 +205,9 @@ impl L8RequestObject {
         );
 
         let msg = network_state_open.ntor_encrypt(data)?;
+        if dev_flag {
+            console::log_1(&format!("Encrypted request body: {:?}", msg).into());
+        }
 
         let mut req_builder = network_state_open
             .http_client

@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{RequestInit, console};
+use web_sys::{console};
 
 use crate::init_tunnel::init_tunnel;
 use crate::storage::InMemoryCache;
@@ -29,7 +29,7 @@ use crate::types::response::handle_response;
 ///
 /// Parameters:
 /// - `resource`: `JsValue` — string, `Url` or `Request` specifying the request target.
-/// - `options`: `Option<RequestInit>` — optional fetch init (method, headers, body, etc.).
+/// - `options`: `Option<web_sys::RequestInit>` — optional fetch init (method, headers, body, etc.).
 ///
 /// Returns:
 /// - `Ok(web_sys::Response)` on successful provider response.
@@ -37,13 +37,18 @@ use crate::types::response::handle_response;
 #[wasm_bindgen]
 pub async fn fetch(
     resource: JsValue,
-    options: Option<RequestInit>,
+    options: Option<web_sys::RequestInit>,
 ) -> Result<web_sys::Response, JsValue> {
     let dev_flag = InMemoryCache::get_dev_flag();
     let backend_url = utils::retrieve_resource_url(&resource)?;
     let backend_base_url = utils::get_base_url(&backend_url)?;
 
-    let req_object = L8RequestObject::new(backend_url, resource, options).await?;
+    let req_object = L8RequestObject::new(backend_url, resource, options.clone()).await?;
+    
+    if dev_flag {
+        console::log_1(&format!("Request options {:?}", options).into());
+        console::log_1(&format!("L8RequestObject: {:?}", req_object).into());
+    }
 
     // we can limit the reinitialization to 2 per fetch call and +1 for the initial request
     let mut attempts = constants::FETCH_RETRY_ATTEMPTS;

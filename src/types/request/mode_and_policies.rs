@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use web_sys::{ReferrerPolicy, RequestMode};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum L8RequestMode {
     // Disallows cross-origin requests. If a request is made to another origin with this mode set, the result is an error.
     SameOrigin = 0,

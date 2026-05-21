@@ -1,15 +1,30 @@
 use {
     bytes::Bytes,
     hyper::{HeaderMap, StatusCode},
-    reqwest::{Error, RequestBuilder, Response},
     serde::de::DeserializeOwned,
 };
+
+#[derive(Debug)]
+pub struct MockHttpResponse {
+    pub status: StatusCode,
+    pub status_str: String,
+    pub headers: HeaderMap,
+    pub body: Vec<u8>,
+    pub url: url::Url,
+}
+
+#[derive(Debug)]
+pub struct MockHttpError {
+    pub msg: String,
+}
 
 /// Represents the response from an HTTP call, which can either be a `reqwest::Response` or raw data.
 #[derive(Debug)]
 pub enum HttpCallerResponse {
-    Reqwest(Response),
+    Reqwest(reqwest::Response),
+    Mock(MockHttpResponse),
     Raw(Vec<u8>),
+    Err(MockHttpError),
 }
 
 /// A trait that defines the behavior of an HTTP caller, allowing for different implementations
@@ -17,8 +32,8 @@ pub enum HttpCallerResponse {
 pub trait HttpCaller: Clone {
     fn send(
         self,
-        request_builder: RequestBuilder,
-    ) -> impl Future<Output = Result<HttpCallerResponse, Error>>;
+        request_builder: reqwest::RequestBuilder,
+    ) -> impl Future<Output = Result<HttpCallerResponse, reqwest::Error>>;
 }
 
 /// An marker implementation of `HttpCaller` that uses `reqwest::Client` to send requests.
@@ -26,7 +41,10 @@ pub trait HttpCaller: Clone {
 pub struct ActualHttpCaller; //in-mem there's no allocation
 
 impl HttpCaller for ActualHttpCaller {
-    async fn send(self, request_builder: RequestBuilder) -> Result<HttpCallerResponse, Error> {
+    async fn send(
+        self,
+        request_builder: reqwest::RequestBuilder,
+    ) -> Result<HttpCallerResponse, reqwest::Error> {
         Ok(HttpCallerResponse::Reqwest(request_builder.send().await?))
     }
 }
@@ -37,6 +55,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.status(),
             HttpCallerResponse::Raw(_) => StatusCode::OK,
+            HttpCallerResponse::Mock(response) => response.status,
+            HttpCallerResponse::Err(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -45,6 +65,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.headers(),
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
+            HttpCallerResponse::Mock(response) => &response.headers,
+            HttpCallerResponse::Err(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -53,6 +75,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.headers_mut(),
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
+            HttpCallerResponse::Mock(response) => &mut response.headers,
+            HttpCallerResponse::Err(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -61,6 +85,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.content_length(),
             HttpCallerResponse::Raw(data) => Some(data.len() as u64),
+            HttpCallerResponse::Mock(response) => response.body.len().try_into().ok(),
+            HttpCallerResponse::Err(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -69,6 +95,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.url(),
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
+            HttpCallerResponse::Mock(response) => &response.url,
+            HttpCallerResponse::Err(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -77,6 +105,11 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.json().await,
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
+            HttpCallerResponse::Mock(response) => {
+                Ok(serde_json::from_slice(&response.body)
+                    .expect("failed to deserialize mock response body as JSON"))
+            }
+            HttpCallerResponse::Err(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -85,6 +118,10 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.text().await,
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
+            HttpCallerResponse::Mock(response) => {
+                Ok(String::from_utf8_lossy(&response.body).into_owned())
+            }
+            HttpCallerResponse::Err(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -93,6 +130,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.bytes().await,
             HttpCallerResponse::Raw(data) => Ok(data.clone().into()),
+            HttpCallerResponse::Mock(response) => Ok(Bytes::from(response.body)),
+            HttpCallerResponse::Err(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -104,6 +143,13 @@ impl HttpCallerResponse {
                 Ok(HttpCallerResponse::Reqwest(response))
             }
             HttpCallerResponse::Raw(data) => Ok(HttpCallerResponse::Raw(data)),
+            HttpCallerResponse::Mock(response) => {
+                if response.status.is_client_error() || response.status.is_server_error() {
+                    panic!("mock response returned error status: {}", response.status);
+                }
+                Ok(HttpCallerResponse::Mock(response))
+            }
+            HttpCallerResponse::Err(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -115,6 +161,13 @@ impl HttpCallerResponse {
                 Ok(self)
             }
             HttpCallerResponse::Raw(_) => Ok(self),
+            HttpCallerResponse::Mock(response) => {
+                if response.status.is_client_error() || response.status.is_server_error() {
+                    panic!("mock response returned error status: {}", response.status);
+                }
+                Ok(self)
+            }
+            HttpCallerResponse::Err(_) => unimplemented!("not implemented for tests"),
         }
     }
 }

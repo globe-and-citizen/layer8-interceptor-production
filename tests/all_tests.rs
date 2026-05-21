@@ -1,18 +1,42 @@
+use crate::mock::data::MockData;
+use l8_intercept::init_tunnel::InitTunnelResult;
+use l8_intercept::types::network_state::NetworkStateOpen;
+use ntor::client::NTorClient;
+use ntor::common::NTorParty;
 use wasm_bindgen_test::wasm_bindgen_test_configure;
+
 #[path = "./mock/mod.rs"]
 mod mock;
 
 wasm_bindgen_test_configure!(run_in_browser);
 
+fn create_network_state(data: MockData) -> NetworkStateOpen {
+    let mut ntor_client = NTorClient::new();
+    // ephemeral_public_key: [236,157,132,84,37,145,238,202,2,168,32,39,191,252,13,97,187,31,212,233,43,137,245,85,78,63,171,116,235,194,65,75]
+    ntor_client.set_shared_secret(data.shared_secret.to_vec());
+
+    let init_tunnel_result = InitTunnelResult {
+        client: ntor_client,
+        int_rp_jwt: "int_rp_jwt placeholder".to_string(),
+        int_fp_jwt: "int_fp_jwt placeholder".to_string(),
+    };
+
+    NetworkStateOpen {
+        http_client: reqwest::Client::new(),
+        init_tunnel_result,
+        forward_proxy_url: data.forward_proxy_url.to_string(),
+    }
+}
+
 mod tests_benchmark {
+    use crate::mock::http_caller::MockHttpCaller;
     use l8_intercept::utils::parse_form_data_to_array;
     use {
-        l8_intercept::{init_tunnel::init_tunnel},
+        l8_intercept::init_tunnel::init_tunnel,
         uuid::Uuid,
         wasm_bindgen_test::*,
         web_sys::{FormData, console},
     };
-    use crate::mock::init_tunnel::MockInitTunnelHttpCaller;
 
     const MB: u32 = 1024 * 1024; // 1 MB in bytes
 
@@ -27,9 +51,11 @@ mod tests_benchmark {
             let start = js_sys::Date::now();
             let _ = init_tunnel(
                 String::from("https://example.com/"),
-                MockInitTunnelHttpCaller {
+                MockHttpCaller {
                     data: vec![],
+                    mock_data: None,
                     init: true,
+                    is_proxy: false,
                 },
             )
             .await
@@ -179,7 +205,7 @@ mod tests_l8_request_object {
         use l8_intercept::types::request::L8RequestObject;
         use wasm_bindgen::JsValue;
         use wasm_bindgen_test::*;
-        use web_sys::{Request};
+        use web_sys::Request;
 
         #[wasm_bindgen_test]
         async fn test_new_with_url_only() {
@@ -255,121 +281,319 @@ mod tests_l8_request_object {
             assert_eq!(req.body, b"{\"key\":\"value\"}".to_vec());
         }
     }
+
+    mod test_l8_send {
+        use crate::create_network_state;
+        use crate::mock::data::get_mock_data;
+        use l8_intercept::types::http_caller::HttpCallerResponse;
+        use wasm_bindgen_test::wasm_bindgen_test;
+
+        #[wasm_bindgen_test]
+        async fn test_send() {
+            let mock_data = get_mock_data();
+            for mock_data in mock_data.iter() {
+                let network_state = create_network_state(mock_data.clone());
+
+                let result = mock_data
+                    .l8_request_object
+                    .l8_send(
+                        &network_state,
+                        crate::mock::http_caller::MockHttpCaller {
+                            data: vec![],
+                            mock_data: Some(mock_data.clone()),
+                            init: false,
+                            is_proxy: true,
+                        },
+                    )
+                    .await;
+
+                assert!(result.is_ok());
+
+                match result.unwrap() {
+                    HttpCallerResponse::Reqwest(res) => {
+                        panic!("Unexpected reqwest response: {:?}", res);
+                    }
+                    HttpCallerResponse::Mock(mock_res) => {
+                        assert_eq!(mock_res.status, 200);
+                        assert_eq!(mock_res.status_str, "OK");
+                        assert!(mock_res.headers.is_empty());
+                        assert_eq!(mock_res.body, mock_data.response_encrypted_body);
+                        assert_eq!(mock_res.url.as_str(), "http://placeholder.net/");
+                    }
+                    HttpCallerResponse::Raw(_) => {
+                        panic!("Unexpected raw response");
+                    }
+                    HttpCallerResponse::Err(err) => {
+                        panic!("Unexpected error: {}", err.msg);
+                    }
+                }
+            }
+        }
+    }
 }
 
 mod tests_l8_response_object {
-    use js_sys::futures::JsFuture;
-    use l8_intercept::types::response::{L8ResponseObject};
-    use wasm_bindgen_test::{wasm_bindgen_test};
 
-    #[wasm_bindgen_test]
-    async fn test_reconstruct_response() {
-        let l8_response = L8ResponseObject {
-            status: 401,
-            status_text: "Unauthorized".to_string(),
-            headers: [
-                (
-                    "Content-Type".to_string(),
-                    serde_json::Value::String("application/json".into()),
-                ),
-                (
-                    "keep-alive".to_string(),
-                    serde_json::Value::String("timeout=5".to_string()),
-                ),
-                (
-                    "date".to_string(),
-                    serde_json::Value::String("Tue, 19 May 2026 08:32:28 GMT".to_string()),
-                ),
-                (
-                    "access-control-allow-credentials".to_string(),
-                    serde_json::Value::String("true".to_string()),
-                ),
-                (
-                    "content-length".to_string(),
-                    serde_json::Value::String("23".to_string()),
-                ),
-                (
-                    "connection".to_string(),
-                    serde_json::Value::String("keep-alive".to_string()),
-                ),
-                (
-                    "etag".to_string(),
-                    serde_json::Value::String("W/\"17-VIEFRCuHQRfwSbpuk4+iLdGeWgY\"".to_string()),
-                ),
-                (
-                    "vary".to_string(),
-                    serde_json::Value::String("Origin".to_string()),
-                ),
-                (
-                    "x-powered-by".to_string(),
-                    serde_json::Value::String("Express".to_string()),
-                ),
-            ]
-            .iter()
-            .cloned()
-            .collect(),
-            body: vec![
-                123, 34, 97, 117, 116, 104, 101, 110, 116, 105, 99, 97, 116, 101, 100, 34, 58, 102,
-                97, 108, 115, 101, 125,
-            ],
-            ok: false,
-            url: "http://localhost:3000/me".to_string(),
-            redirected: false,
-        };
+    mod tests_reconstruct_response {
+        use js_sys::futures::JsFuture;
+        use l8_intercept::types::response::L8ResponseObject;
+        use wasm_bindgen_test::wasm_bindgen_test;
 
-        let res = l8_response.reconstruct_js_response().expect("Failed to reconstruct JS Response");
-        assert_eq!(res.status(), 401);
-        assert_eq!(res.status_text(), "Unauthorized");
-        assert_eq!(res.headers().get("Content-Type").unwrap().unwrap(), "\"application/json\"");
-        assert_eq!(res.headers().get("keep-alive").unwrap().unwrap(), "\"timeout=5\"");
-        assert_eq!(res.headers().get("date").unwrap().unwrap(), "\"Tue, 19 May 2026 08:32:28 GMT\"");
-        assert_eq!(res.headers().get("access-control-allow-credentials").unwrap().unwrap(), "\"true\"");
-        assert_eq!(res.headers().get("content-length").unwrap().unwrap(), "\"23\"");
-        assert_eq!(res.headers().get("connection").unwrap().unwrap(), "\"keep-alive\"");
-        assert_eq!(res.headers().get("etag").unwrap().unwrap(), "\"W/\\\"17-VIEFRCuHQRfwSbpuk4+iLdGeWgY\\\"\"");
-        assert_eq!(res.headers().get("vary").unwrap().unwrap(), "\"Origin\"");
-        assert_eq!(res.headers().get("x-powered-by").unwrap().unwrap(), "\"Express\"");
+        #[wasm_bindgen_test]
+        async fn test_case_valid_1() {
+            let l8_response = L8ResponseObject {
+                status: 401,
+                status_text: "Unauthorized".to_string(),
+                headers: [
+                    (
+                        "Content-Type".to_string(),
+                        serde_json::Value::String("application/json".into()),
+                    ),
+                    (
+                        "keep-alive".to_string(),
+                        serde_json::Value::String("timeout=5".to_string()),
+                    ),
+                    (
+                        "date".to_string(),
+                        serde_json::Value::String("Tue, 19 May 2026 08:32:28 GMT".to_string()),
+                    ),
+                    (
+                        "access-control-allow-credentials".to_string(),
+                        serde_json::Value::String("true".to_string()),
+                    ),
+                    (
+                        "content-length".to_string(),
+                        serde_json::Value::String("23".to_string()),
+                    ),
+                    (
+                        "connection".to_string(),
+                        serde_json::Value::String("keep-alive".to_string()),
+                    ),
+                    (
+                        "etag".to_string(),
+                        serde_json::Value::String(
+                            "W/\"17-VIEFRCuHQRfwSbpuk4+iLdGeWgY\"".to_string(),
+                        ),
+                    ),
+                    (
+                        "vary".to_string(),
+                        serde_json::Value::String("Origin".to_string()),
+                    ),
+                    (
+                        "x-powered-by".to_string(),
+                        serde_json::Value::String("Express".to_string()),
+                    ),
+                ]
+                .iter()
+                .cloned()
+                .collect(),
+                body: vec![
+                    123, 34, 97, 117, 116, 104, 101, 110, 116, 105, 99, 97, 116, 101, 100, 34, 58,
+                    102, 97, 108, 115, 101, 125,
+                ],
+                ok: false,
+                url: "http://localhost:3000/me".to_string(),
+                redirected: false,
+            };
 
-        let json = JsFuture::from(res.json().unwrap()).await.expect("Failed to read JS response");
+            let res = l8_response
+                .reconstruct_js_response()
+                .expect("Failed to reconstruct JS Response");
+            assert_eq!(res.status(), 401);
+            assert_eq!(res.status_text(), "Unauthorized");
+            assert_eq!(
+                res.headers().get("Content-Type").unwrap().unwrap(),
+                "\"application/json\""
+            );
+            assert_eq!(
+                res.headers().get("keep-alive").unwrap().unwrap(),
+                "\"timeout=5\""
+            );
+            assert_eq!(
+                res.headers().get("date").unwrap().unwrap(),
+                "\"Tue, 19 May 2026 08:32:28 GMT\""
+            );
+            assert_eq!(
+                res.headers()
+                    .get("access-control-allow-credentials")
+                    .unwrap()
+                    .unwrap(),
+                "\"true\""
+            );
+            assert_eq!(
+                res.headers().get("content-length").unwrap().unwrap(),
+                "\"23\""
+            );
+            assert_eq!(
+                res.headers().get("connection").unwrap().unwrap(),
+                "\"keep-alive\""
+            );
+            assert_eq!(
+                res.headers().get("etag").unwrap().unwrap(),
+                "\"W/\\\"17-VIEFRCuHQRfwSbpuk4+iLdGeWgY\\\"\""
+            );
+            assert_eq!(res.headers().get("vary").unwrap().unwrap(), "\"Origin\"");
+            assert_eq!(
+                res.headers().get("x-powered-by").unwrap().unwrap(),
+                "\"Express\""
+            );
 
-        #[derive(serde::Deserialize, Debug)]
-        struct TestResponse {
-            authenticated: bool,
+            let json = JsFuture::from(res.json().unwrap())
+                .await
+                .expect("Failed to read JS response");
+
+            #[derive(serde::Deserialize, Debug)]
+            struct TestResponse {
+                authenticated: bool,
+            }
+
+            let res_body: TestResponse =
+                serde_wasm_bindgen::from_value(json).expect("Failed to deserialize test response");
+            assert_eq!(res_body.authenticated, false);
         }
 
-        let res_body: TestResponse = serde_wasm_bindgen::from_value(json).expect("Failed to deserialize test response");
-        assert_eq!(res_body.authenticated, false);
+        #[wasm_bindgen_test]
+        async fn test_case_valid_2() {
+            let l8_response = L8ResponseObject {
+                status: 200,
+                status_text: "OK".to_string(),
+                headers: [
+                    (
+                        "content-type".to_string(),
+                        serde_json::Value::String("application/json".to_string()),
+                    ),
+                    (
+                        "x-request-id".to_string(),
+                        serde_json::Value::String("abc-123".to_string()),
+                    ),
+                ]
+                .iter()
+                .cloned()
+                .collect(),
+                body: b"{\"ok\":true}".to_vec(),
+                ok: true,
+                url: "https://example.com/resource".to_string(),
+                redirected: false,
+            };
+
+            let res = l8_response
+                .reconstruct_js_response()
+                .expect("Failed to reconstruct JS Response");
+
+            assert_eq!(res.status(), 200);
+            assert_eq!(res.status_text(), "OK");
+            assert_eq!(
+                res.headers().get("content-type").unwrap().unwrap(),
+                "\"application/json\""
+            );
+            assert_eq!(
+                res.headers().get("x-request-id").unwrap().unwrap(),
+                "\"abc-123\""
+            );
+
+            let body_js = wasm_bindgen_futures::JsFuture::from(res.array_buffer().unwrap())
+                .await
+                .unwrap();
+            let body = js_sys::Uint8Array::new(&body_js).to_vec();
+            assert_eq!(body, b"{\"ok\":true}".to_vec());
+        }
+
+        #[wasm_bindgen_test]
+        async fn test_case_empty_body() {
+            let l8_response = L8ResponseObject {
+                status: 204,
+                status_text: "No Content".to_string(),
+                headers: [(
+                    "content-type".to_string(),
+                    serde_json::Value::String("application/json".to_string()),
+                )]
+                .iter()
+                .cloned()
+                .collect(),
+                body: vec![],
+                ok: true,
+                url: "https://example.com/empty".to_string(),
+                redirected: false,
+            };
+
+            let res = l8_response
+                .reconstruct_js_response()
+                .expect("Failed to reconstruct JS response");
+
+            assert_eq!(res.status(), 204);
+            assert_eq!(res.status_text(), "No Content");
+
+            let body_js = wasm_bindgen_futures::JsFuture::from(res.array_buffer().unwrap())
+                .await
+                .unwrap();
+            let body = js_sys::Uint8Array::new(&body_js).to_vec();
+            assert!(body.is_empty());
+        }
     }
 
-    // #[wasm_bindgen_test]
-    // async fn test_handle_response() {
-    //     let mut ntor_client = NTorClient::new();
-    //     // ephemeral_public_key: [236,157,132,84,37,145,238,202,2,168,32,39,191,252,13,97,187,31,212,233,43,137,245,85,78,63,171,116,235,194,65,75]
-    //     ntor_client.set_shared_secret(vec![25, 120, 135, 79, 224, 125, 4, 92, 252, 226, 250, 109, 40, 85, 141, 63]);
-    //
-    //     let init_tunnel_result = InitTunnelResult {
-    //         client: ntor_client,
-    //         int_rp_jwt: "".to_string(),
-    //         int_fp_jwt: "dummy_fp_jwt".to_string(),
-    //     };
-    //
-    //     let network_state_open = NetworkStateOpen {
-    //         http_client: reqwest::Client::new(),
-    //         init_tunnel_result,
-    //         forward_proxy_url: "http://localhost:6191".to_string(),
-    //     };
-    //
-    //     // let mut headers = web_sys::Headers::new().unwrap();
-    //     // headers.set("Content-Type", "application/json").unwrap();
-    //     // let init = ResponseInit::new();
-    //     // init.set_status(200);
-    //     // init.set_status_text("OK");
-    //     // init.set_headers(&headers);
-    //     //
-    //     // let body = Some("{\"hello\": \"world\"}");
-    //     //
-    //     // let response = Response::new_with_opt_str_and_init(body, &init).expect("Failed to create response");
-    //
-    //     // let res = handle_response(&network_state_open, true, reqwest_response).await;
-    // }
+    mod tests_handle_response {
+        use crate::mock::data::MockData;
+        use crate::{create_network_state, mock};
+        use l8_intercept::types::http_caller::{HttpCallerResponse, MockHttpResponse};
+        use l8_intercept::types::network_state::NetworkStateResponse;
+        use l8_intercept::utils;
+        use reqwest::StatusCode;
+        use wasm_bindgen_test::wasm_bindgen_test;
+
+        fn create_mock_response(data: MockData) -> MockHttpResponse {
+            MockHttpResponse {
+                status: StatusCode::try_from(data.response_from_proxy.status).unwrap(),
+                status_str: data.response_from_proxy.status_str.to_string(),
+                headers: utils::hashmap_to_reqwest_header_map(&data.response_from_proxy.headers)
+                    .unwrap(),
+                body: data.response_encrypted_body,
+                url: url::Url::parse(&data.l8_response_object.url).unwrap(), // url::Url::parse("http://localhost").unwrap(),
+            }
+        }
+
+        #[wasm_bindgen_test]
+        async fn test_success() {
+            let mock_data = mock::data::get_mock_data();
+
+            for mock_data in mock_data.iter() {
+                let network_state = create_network_state(mock_data.clone());
+                let response = create_mock_response(mock_data.clone());
+
+                let result = l8_intercept::types::response::handle_response(
+                    &network_state,
+                    false,
+                    HttpCallerResponse::Mock(response),
+                )
+                .await
+                .expect("Failed to handle response");
+
+                match result {
+                    NetworkStateResponse::ProviderResponse(res) => {
+                        assert_eq!(res.status(), mock_data.l8_response_object.status);
+                        assert_eq!(res.status_text(), mock_data.l8_response_object.status_text);
+                        for (header_name, header_value) in &mock_data.l8_response_object.headers {
+                            assert_eq!(
+                                res.headers().get(header_name).unwrap().unwrap(),
+                                format!("{}", header_value.to_string())
+                            );
+                        }
+
+                        let body_js =
+                            wasm_bindgen_futures::JsFuture::from(res.array_buffer().unwrap())
+                                .await
+                                .unwrap();
+                        let body = js_sys::Uint8Array::new(&body_js).to_vec();
+                        assert_eq!(body, mock_data.l8_response_object.body);
+                    }
+
+                    NetworkStateResponse::ProxyError(err) => {
+                        panic!("Unexpected error: {:?}", err);
+                    }
+                    NetworkStateResponse::Reinitialize => {
+                        panic!("Unexpected reinitialize response");
+                    }
+                }
+            }
+        }
+    }
 }
