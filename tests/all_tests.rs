@@ -16,7 +16,7 @@ fn create_network_state(data: MockData) -> NetworkStateOpen {
     ntor_client.set_shared_secret(data.shared_secret.to_vec());
 
     let init_tunnel_result = InitTunnelResult {
-        client: ntor_client,
+        ntor_client,
         int_rp_jwt: "int_rp_jwt placeholder".to_string(),
         int_fp_jwt: "int_fp_jwt placeholder".to_string(),
     };
@@ -594,6 +594,181 @@ mod tests_l8_response_object {
                     }
                 }
             }
+        }
+    }
+}
+
+mod tests_init_tunnel {
+    use crate::mock::http_caller::MockHttpCaller;
+    use l8_intercept::init_tunnel::init_tunnel;
+    use ntor::common::NTorParty;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    #[wasm_bindgen_test]
+    async fn succeeds() {
+        let result = init_tunnel(
+            "https://example.com/init-tunnel".to_string(),
+            MockHttpCaller {
+                data: vec![],
+                mock_data: None,
+                init: true,
+                is_proxy: false,
+            },
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let tunnel = result.unwrap();
+        assert_eq!(tunnel.int_rp_jwt, "test_jwt1");
+        assert_eq!(tunnel.int_fp_jwt, "test_jwt2");
+        assert!(
+            tunnel.ntor_client.get_shared_secret().is_some(),
+            "Expected NTorClient to have a shared secret established from the handshake"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    #[should_panic]
+    async fn fails_when_response_body_is_not_valid_json() {
+        let _ = init_tunnel(
+            "https://example.com/init-tunnel".to_string(),
+            MockHttpCaller {
+                data: b"not valid json".to_vec(),
+                mock_data: None,
+                init: false,
+                is_proxy: false,
+            },
+        )
+        .await;
+    }
+
+    #[wasm_bindgen_test]
+    #[should_panic]
+    async fn fails_when_response_body_is_empty() {
+        let _ = init_tunnel(
+            "https://example.com/init-tunnel".to_string(),
+            MockHttpCaller {
+                data: vec![],
+                mock_data: None,
+                init: false,
+                is_proxy: false,
+            },
+        )
+        .await;
+    }
+
+    #[wasm_bindgen_test]
+    #[should_panic]
+    async fn fails_when_response_is_valid_json_but_missing_required_fields() {
+        let incomplete = serde_json::to_vec(&serde_json::json!({
+            "int_rp_jwt": "jwt1",
+            "int_fp_jwt": "jwt2"
+        }))
+        .unwrap();
+
+        let _ = init_tunnel(
+            "https://example.com/init-tunnel".to_string(),
+            MockHttpCaller {
+                data: incomplete,
+                mock_data: None,
+                init: false,
+                is_proxy: false,
+            },
+        )
+        .await;
+    }
+
+    #[wasm_bindgen_test]
+    async fn fails_when_ntor_handshake_fails_due_to_wrong_keys() {
+        let bad_handshake = serde_json::to_vec(&serde_json::json!({
+            "ephemeral_public_key": vec![0u8; 32],
+            "t_b_hash": vec![0u8; 32],
+            "static_public_key": vec![0u8; 32],
+            "server_id": "bad-server",
+            "int_rp_jwt": "jwt1",
+            "int_fp_jwt": "jwt2",
+        }))
+        .unwrap();
+
+        let result = init_tunnel(
+            "https://example.com/init-tunnel".to_string(),
+            MockHttpCaller {
+                data: bad_handshake,
+                mock_data: None,
+                init: false,
+                is_proxy: false,
+            },
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+}
+
+mod tests_init_encrypted_tunnels {
+    use l8_intercept::init_tunnel::init_encrypted_tunnels;
+    use l8_intercept::storage::InMemoryCache;
+    use l8_intercept::types::service_provider::ServiceProvider;
+    use wasm_bindgen_test::{console_log, wasm_bindgen_test};
+
+    #[wasm_bindgen_test]
+    async fn returns_ok_with_stored_errored_network_state() {
+        let sp = "https://backend.example.com";
+
+        let result = init_encrypted_tunnels(
+            "https://fp.example.com".to_string(),
+            vec![ServiceProvider::new(sp.to_string(), None)],
+            None,
+        );
+
+        assert!(result.is_ok());
+        let get_state = InMemoryCache::get_network_state(sp).await;
+        assert!(
+            get_state.is_err(),
+            "Expected network state to be in ERRORED because SP is unable to connect"
+        );
+        let state = get_state.err().unwrap().as_string().unwrap();
+        assert!(state.contains("error sending request"));
+    }
+
+    #[wasm_bindgen_test]
+    fn returns_ok_with_empty_service_providers_list() {
+        let result = init_encrypted_tunnels("https://fp.example.com".to_string(), vec![], None);
+
+        assert!(result.is_ok());
+    }
+
+    #[wasm_bindgen_test]
+    async fn returns_err_when_service_provider_is_invalid() {
+        let cases = [
+            (
+                "SP is not a valid URL",
+                "not-a-valid-url".to_string(),
+                "No record should be found for the provided invalid SP",
+                "Network state for not-a-valid-url is not initialized.",
+            ),
+            (
+                "SP is empty",
+                String::new(),
+                "No record should be found for the provided invalid SP",
+                "Network state for  is not initialized.",
+            ),
+        ];
+
+        for (case_name, sp, reason, err_str) in cases.iter() {
+            console_log!("Running case: {}", case_name);
+            let result = init_encrypted_tunnels(
+                "https://fp.example.com".to_string(),
+                vec![ServiceProvider::new(sp.clone(), None)],
+                None,
+            );
+
+            assert!(result.is_err());
+            let get_state = InMemoryCache::get_network_state(&sp).await;
+            assert!(get_state.is_err(), "{}", reason);
+            let state = get_state.err().unwrap().as_string().unwrap();
+            console_log!("State: {}", state);
+            assert!(state.contains(err_str));
         }
     }
 }

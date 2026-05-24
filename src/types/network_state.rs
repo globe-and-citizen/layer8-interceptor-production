@@ -37,7 +37,7 @@ impl NetworkStateOpen {
     pub fn ntor_encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, JsValue> {
         let (nonce, encrypted) = self
             .init_tunnel_result
-            .client
+            .ntor_client
             .wasm_encrypt(data)
             .map_err(|e| JsValue::from_str(&format!("Failed to encrypt data: {}", e)))?;
 
@@ -65,7 +65,7 @@ impl NetworkStateOpen {
 
         let decrypted_response = self
             .init_tunnel_result
-            .client
+            .ntor_client
             .wasm_decrypt(encrypted_data.0.nonce.to_vec(), encrypted_data.0.data)
             .map_err(|e| JsValue::from_str(&format!("Failed to decrypt data: {}", e)))?;
 

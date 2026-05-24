@@ -44,7 +44,7 @@ pub async fn fetch(
     let backend_base_url = utils::get_base_url(&backend_url)?;
 
     let req_object = L8RequestObject::new(backend_url, resource, options.clone()).await?;
-    
+
     if dev_flag {
         console::log_1(&format!("Request options {:?}", options).into());
         console::log_1(&format!("L8RequestObject: {:?}", req_object).into());

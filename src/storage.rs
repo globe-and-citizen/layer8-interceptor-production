@@ -16,10 +16,39 @@ thread_local! {
     static DEV_FLAG: RefCell<bool> = const { RefCell::new(false) };
 }
 
-pub(crate) struct InMemoryCache {}
+/// In-memory cache for managing network states and feature flags.
+///
+/// `InMemoryCache` provides a thread-local, static interface for storing and retrieving
+/// [`NetworkState`] entries keyed by provider URL, as well as a developer mode flag.
+///
+/// # Design
+/// All state is stored in `thread_local!` statics, making this type zero-sized with
+/// no instances needed — all methods are associated functions (no `self`).
+pub struct InMemoryCache {}
 
 impl InMemoryCache {
-    pub(crate) async fn get_network_state(provider_url: &str) -> Result<NetworkStateOpen, JsValue> {
+
+    /// Retrieves the [`NetworkStateOpen`] for the given `provider_url`, waiting if the
+    /// tunnel is still in the `CONNECTING` state.
+    ///
+    /// # Behavior
+    /// - If the state is [`NetworkState::OPEN`], returns the inner [`NetworkStateOpen`] immediately.
+    /// - If the state is [`NetworkState::CONNECTING`], sleeps for [`FETCH_RETRY_SLEEP_DELAY`]
+    ///   milliseconds and retries in a loop.
+    /// - If the state is [`NetworkState::ERRORED`], returns the stored [`JsValue`] error.
+    /// - If no entry exists for `provider_url`, returns an error instructing the caller to
+    ///   invoke `layer8.initEncryptedTunnel(..)` first.
+    ///
+    /// # Errors
+    /// Returns a [`JsValue`] error string when the network state is missing or errored.
+    ///
+    /// # Note
+    /// This method is intended for **internal use only**. It is called by `fetch` and
+    /// `L8RequestObject::l8_send` to resolve the current network state prior to making
+    /// requests. It transparently handles waiting for tunnel initialization and propagates
+    /// any errors encountered. If no initialization process is started, this method will
+    /// loop indefinitely.
+    pub async fn get_network_state(provider_url: &str) -> Result<NetworkStateOpen, JsValue> {
         let dev_flag = DEV_FLAG.with_borrow(|flag| *flag);
         loop {
             let network_state = NETWORK_STATE_MAP
@@ -49,19 +78,32 @@ impl InMemoryCache {
         }
     }
 
-    pub(crate) fn set_connecting_network_state(provider_url: &str) {
+    /// Inserts or overwrites the network state for `provider_url` with [`NetworkState::CONNECTING`].
+    ///
+    /// This should be called before initiating an encrypted tunnel handshake so that
+    /// concurrent fetch calls know to wait rather than fail immediately.
+    pub fn set_connecting_network_state(provider_url: &str) {
         NETWORK_STATE_MAP.with_borrow_mut(|cache| {
             cache.insert(provider_url.to_string(), Rc::new(NetworkState::CONNECTING));
         });
     }
 
-    pub(crate) fn set_open_network_state(provider_url: &str, state: NetworkStateOpen) {
+    /// Inserts or overwrites the network state for `provider_url` with [`NetworkState::OPEN`],
+    /// storing the fully initialized `state`.
+    ///
+    /// Call this once the tunnel handshake completes successfully.
+    pub fn set_open_network_state(provider_url: &str, state: NetworkStateOpen) {
         NETWORK_STATE_MAP.with_borrow_mut(|cache| {
             cache.insert(provider_url.to_string(), Rc::new(NetworkState::OPEN(state)));
         });
     }
 
-    pub(crate) fn set_errored_network_state(provider_url: &str, err: JsValue) {
+    /// Inserts or overwrites the network state for `provider_url` with [`NetworkState::ERRORED`],
+    /// storing the originating `err`.
+    ///
+    /// Subsequent calls to [`InMemoryCache::get_network_state`] for the same URL will
+    /// propagate this error to the caller immediately.
+    pub fn set_errored_network_state(provider_url: &str, err: JsValue) {
         NETWORK_STATE_MAP.with_borrow_mut(|cache| {
             cache.insert(
                 provider_url.to_string(),
@@ -70,7 +112,15 @@ impl InMemoryCache {
         });
     }
 
-    pub(crate) fn set_dev_flag(flag: Option<bool>) -> bool {
+    /// Enables dev mode when `flag` is `Some(true)`, logging a confirmation message to the
+    /// browser console.
+    ///
+    /// Dev mode currently activates additional console logging (e.g., tunnel connection wait
+    /// messages in [`InMemoryCache::get_network_state`]).
+    ///
+    /// # Returns
+    /// `true` if dev mode was enabled, `false` otherwise.
+    pub fn set_dev_flag(flag: Option<bool>) -> bool {
         if let Some(val) = flag {
             if val {
                 DEV_FLAG.with_borrow_mut(|dev_flag| *dev_flag = true);
@@ -81,7 +131,10 @@ impl InMemoryCache {
         false
     }
 
-    pub(crate) fn get_dev_flag() -> bool {
+    /// Returns the current value of the dev mode flag.
+    ///
+    /// `true` means dev mode is active; `false` means it is disabled (the default).
+    pub fn get_dev_flag() -> bool {
         DEV_FLAG.with_borrow(|dev_flag| *dev_flag)
     }
 }

@@ -17,9 +17,22 @@ use crate::types::{
 };
 use crate::utils;
 
+/// Holds the result of a successfully completed `init-tunnel` handshake.
+///
+/// After the NTor key exchange finishes, an `InitTunnelResult` is stored in the global
+/// network state and reused for every subsequent encrypted request to the associated
+/// service provider.
+///
+/// # Fields
+/// * `ntor_client` – The `NTorClient` that has completed the handshake and holds the shared
+///   secret used to encrypt/decrypt payloads.
+/// * `int_rp_jwt` – A signed JWT issued by the backend (reverse-proxy) that authorizes
+///   the current session on the forward-proxy side.
+/// * `int_fp_jwt` – A signed JWT issued by the forward-proxy that the client attaches to
+///   subsequent requests so the proxy can verify the session.
 #[derive(Clone)]
 pub struct InitTunnelResult {
-    pub client: NTorClient,
+    pub ntor_client: NTorClient,
     pub int_rp_jwt: String,
     pub int_fp_jwt: String,
 }
@@ -27,18 +40,46 @@ pub struct InitTunnelResult {
 impl InitTunnelResult {
     fn new() -> Self {
         InitTunnelResult {
-            client: NTorClient::new(),
+            ntor_client: NTorClient::new(),
             int_rp_jwt: String::new(),
             int_fp_jwt: String::new(),
         }
     }
 
     fn generate_ntor_client_public_key(&mut self) -> Vec<u8> {
-        let init_session_msg = self.client.initialise_session();
+        let init_session_msg = self.ntor_client.initialise_session();
         init_session_msg.public_key()
     }
 }
 
+impl Debug for InitTunnelResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "InitTunnelResult {{ int_fp_jwt: {},\n int_rp_jwt: {},\n client: `not debuggable` }}", // TODO: implement Debug for NTorClient
+            self.int_fp_jwt, self.int_rp_jwt
+        )
+    }
+}
+
+/// Represents the response payload returned by the forward-proxy during the `init-tunnel` handshake.
+///
+/// This struct is deserialized from the JSON body of the forward-proxy's response and contains
+/// all the data required to complete the NTor key exchange and establish an encrypted session.
+///
+/// # Fields
+/// * `ephemeral_public_key` – The server's ephemeral Curve25519 public key generated for this
+///   session. Used together with `t_b_hash` to complete the NTor handshake on the client side.
+/// * `t_b_hash` – The NTor authentication hash (`T_B`) produced by the server, binding the
+///   session to the server's identity and ephemeral key.
+/// * `int_rp_jwt` – A signed JWT issued by the backend (reverse-proxy) that authorizes the
+///   current session on the forward-proxy side.
+/// * `int_fp_jwt` – A signed JWT issued by the forward-proxy that the client attaches to
+///   subsequent requests for session verification.
+/// * `server_id` – A string identifier for the server, used to look up the server's static
+///   public key during certificate validation in the NTor handshake.
+/// * `static_public_key` – The server's long-term Curve25519 public key. Combined with
+///   `server_id` it forms the `NTorCertificate` used to authenticate the server's identity.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct InitTunnelResponse {
     pub ephemeral_public_key: Vec<u8>,
@@ -50,10 +91,35 @@ pub struct InitTunnelResponse {
 }
 
 impl InitTunnelResponse {
+    /// Deserializes an `InitTunnelResponse` from a raw byte slice.
+    ///
+    /// Expects `bytes` to contain a valid UTF-8 JSON payload that matches the
+    /// `InitTunnelResponse` schema. Panics (via `expect_throw`) if deserialization fails,
+    /// which propagates the error to the JavaScript caller as an exception.
+    ///
+    /// # Parameters
+    /// * `bytes` – Raw response body bytes received from the forward-proxy.
+    ///
+    /// # Panics
+    /// Panics with the message `"Failed to deserialize bytes to InitTunnelResponse"` if
+    /// `bytes` is not valid JSON or does not match the expected structure.
     fn from_bytes(bytes: &[u8]) -> Self {
         serde_json::from_slice(bytes).expect_throw("Failed to deserialize bytes to InitTunnelResponse")
     }
 
+    /// Completes the NTor handshake on the client side using the server's response data.
+    ///
+    /// Constructs an [`InitSessionResponse`] from the server's ephemeral public key and
+    /// authentication hash, and an [`NTorCertificate`] from the server's static public key
+    /// and server identifier. These are then passed to [`NTorClient::handle_response_from_server`]
+    /// to derive the shared secret and verify the server's identity.
+    ///
+    /// # Parameters
+    /// * `client` – A mutable reference to the `NTorClient` that sent the initial message.
+    ///
+    /// # Returns
+    /// `true` if the handshake succeeded and a shared secret has been established;
+    /// `false` if authentication or key derivation failed.
     fn compute_ntor_handshake(&self, client: &mut NTorClient) -> bool {
         let init_msg_response =
             InitSessionResponse::new(self.ephemeral_public_key.clone(), self.t_b_hash.clone());
@@ -62,16 +128,6 @@ impl InitTunnelResponse {
             NTorCertificate::new(self.static_public_key.clone(), self.server_id.clone());
 
         client.handle_response_from_server(&server_certificate, &init_msg_response)
-    }
-}
-
-impl Debug for InitTunnelResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "InitTunnelResult {{ int_fp_jwt: {},\n int_rp_jwt: {},\n client: `not debuggable` }}", // TODO: implement Debug for NTorClient
-            self.int_fp_jwt, self.int_rp_jwt
-        )
     }
 }
 
@@ -86,7 +142,7 @@ impl Debug for InitTunnelResult {
 ///   (for example `ActualHttpCaller` in production or a mock in tests).
 ///
 /// # Behavior
-/// * Generates the NTor client initialisation message and sends it as JSON `{ "public_key": ... }`.
+/// * Generates the NTor client initialization message and sends it as JSON `{ "public_key": ... }`.
 /// * Retries the request up to `INIT_TUNNEL_RETRY_ATTEMPTS` with
 ///   `INIT_TUNNEL_RETRY_SLEEP_DELAY` between attempts on failure.
 /// * Deserializes the response into `InitTunnelResponse` and completes the NTor handshake.
@@ -168,7 +224,7 @@ pub async fn init_tunnel(
     };
 
     // 4. Complete NTor handshake
-    if !response_body.compute_ntor_handshake(&mut init_tunnel_result.client) {
+    if !response_body.compute_ntor_handshake(&mut init_tunnel_result.ntor_client) {
         return Err(JsValue::from_str("Failed to create nTor Client"));
     };
 
@@ -176,7 +232,7 @@ pub async fn init_tunnel(
         console::log_1(
             &format!(
                 "NTor shared secret: {:?}",
-                init_tunnel_result.client.get_shared_secret().expect_throw(
+                init_tunnel_result.ntor_client.get_shared_secret().expect_throw(
                     "Shared secret should be available after successful tunnel initialization"
                 )
             )
@@ -218,13 +274,13 @@ pub fn init_encrypted_tunnels(
     let dev_flag = InMemoryCache::set_dev_flag(dev_flag);
 
     for service_provider in service_providers {
-        // update the urls as connecting before scheduling the background task to initialize the tunnel
-        InMemoryCache::set_connecting_network_state(&service_provider.url);
-
         let base_url = utils::get_base_url(&service_provider.url)?;
         let backend_url = format!("{}/init-tunnel?backend_url={}", forward_proxy_url, base_url);
         let forward_proxy_url = forward_proxy_url.clone();
 
+        // update the urls as connecting before scheduling the background task to initialize the tunnel
+        InMemoryCache::set_connecting_network_state(&service_provider.url);
+        
         // schedule the background task to initialize the tunnel
         wasm_bindgen_futures::spawn_local(async move {
             match init_tunnel(backend_url, ActualHttpCaller).await {
