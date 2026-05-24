@@ -1,4 +1,4 @@
-use crate::mock::data::{MockData, get_mock_data};
+use crate::mock::data::MockData;
 use l8_intercept::types::http_caller::{
     HttpCaller, HttpCallerResponse, MockHttpError, MockHttpResponse,
 };

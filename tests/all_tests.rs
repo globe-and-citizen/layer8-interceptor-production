@@ -574,7 +574,7 @@ mod tests_l8_response_object {
                         for (header_name, header_value) in &mock_data.l8_response_object.headers {
                             assert_eq!(
                                 res.headers().get(header_name).unwrap().unwrap(),
-                                format!("{}", header_value.to_string())
+                                format!("{}", header_value)
                             );
                         }
 

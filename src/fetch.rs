@@ -59,7 +59,7 @@ pub async fn fetch(
             Ok(resp) => handle_response(&network_state_open, attempts > 0, resp).await?,
             Err(err) => {
                 // we can reinitialize the network state
-                if attempts <= 0 {
+                if attempts == 0 {
                     return Err(err)
                 };
 

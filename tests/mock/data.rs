@@ -13,6 +13,7 @@ pub struct ResponseFromProxy {
 pub struct MockData {
     pub shared_secret: [u8; 16],
     pub forward_proxy_url: String,
+    #[allow(dead_code)]
     pub request_encrypted_body: Vec<u8>,
     pub l8_request_object: L8RequestObject,
     pub response_from_proxy: ResponseFromProxy,
