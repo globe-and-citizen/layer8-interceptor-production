@@ -27,7 +27,6 @@ thread_local! {
 pub struct InMemoryCache {}
 
 impl InMemoryCache {
-
     /// Retrieves the [`NetworkStateOpen`] for the given `provider_url`, waiting if the
     /// tunnel is still in the `CONNECTING` state.
     ///

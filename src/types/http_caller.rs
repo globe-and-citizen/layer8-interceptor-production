@@ -2,7 +2,7 @@ use {
     bytes::Bytes,
     hyper::{HeaderMap, StatusCode},
     serde::de::DeserializeOwned,
-    std::future::Future
+    std::future::Future,
 };
 
 #[derive(Debug)]
@@ -106,10 +106,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.json().await,
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
-            HttpCallerResponse::Mock(response) => {
-                Ok(serde_json::from_slice(&response.body)
-                    .expect("failed to deserialize mock response body as JSON"))
-            }
+            HttpCallerResponse::Mock(response) => Ok(serde_json::from_slice(&response.body)
+                .expect("failed to deserialize mock response body as JSON")),
             HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }

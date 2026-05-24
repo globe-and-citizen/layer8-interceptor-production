@@ -2,9 +2,8 @@ mod body;
 pub mod mode_and_policies;
 
 use crate::storage::InMemoryCache;
-use crate::types::{
-    network_state::NetworkStateOpen,
-};
+use crate::types::http_caller::{HttpCaller, HttpCallerResponse};
+use crate::types::network_state::NetworkStateOpen;
 use crate::utils;
 use body::L8BodyType;
 use mode_and_policies::{L8RequestMode, get_request_referer_policy};
@@ -12,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::{AbortSignal, console};
-use crate::types::http_caller::{HttpCaller, HttpCallerResponse};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
@@ -81,7 +79,10 @@ impl L8RequestObject {
     }
 
     /// Create a L8RequestObject instance from a web_sys::RequestInit object
-    async fn from_request_options(mut uri: String, options: web_sys::RequestInit) -> Result<Self, JsValue> {
+    async fn from_request_options(
+        mut uri: String,
+        options: web_sys::RequestInit,
+    ) -> Result<Self, JsValue> {
         // Using the resource URL and options object to fetch the resource
         let mut req_wrapper = L8RequestObject {
             uri: uri.clone(),
@@ -128,7 +129,7 @@ impl L8RequestObject {
                             "multipart/form-data; boundary={}",
                             boundary
                         ))
-                            .expect_throw("a valid string is JSON serializable"),
+                        .expect_throw("a valid string is JSON serializable"),
                     );
 
                     req_wrapper.body = data;
@@ -167,7 +168,10 @@ impl L8RequestObject {
     }
 
     /// Create a L8RequestObject instance from a web_sys::Request object
-    async fn from_web_sys_request_object(uri: String, req: &web_sys::Request) -> Result<Self, JsValue> {
+    async fn from_web_sys_request_object(
+        uri: String,
+        req: &web_sys::Request,
+    ) -> Result<Self, JsValue> {
         let mut req_wrapper = L8RequestObject {
             method: req.method().to_string().trim().to_uppercase(),
             uri,

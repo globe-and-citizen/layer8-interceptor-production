@@ -104,7 +104,8 @@ impl InitTunnelResponse {
     /// Panics with the message `"Failed to deserialize bytes to InitTunnelResponse"` if
     /// `bytes` is not valid JSON or does not match the expected structure.
     fn from_bytes(bytes: &[u8]) -> Self {
-        serde_json::from_slice(bytes).expect_throw("Failed to deserialize bytes to InitTunnelResponse")
+        serde_json::from_slice(bytes)
+            .expect_throw("Failed to deserialize bytes to InitTunnelResponse")
     }
 
     /// Completes the NTor handshake on the client side using the server's response data.
@@ -178,7 +179,7 @@ pub async fn init_tunnel(
         let req_builder = reqwest::Client::new()
             .post(request_url.clone())
             .header("Content-Type", "application/json")
-            .header("Retry-count", retry_attempt)
+            .header("Retry-count", retry_attempt.to_string())
             .body(request_body.to_string());
 
         match http_caller.clone().send(req_builder).await {
@@ -219,7 +220,10 @@ pub async fn init_tunnel(
                 console::error_1(&format!("Cannot read response body: {}", err).into());
             }
 
-            return Err(JsValue::from_str(&format!("Cannot read response body: {:?}", err)));
+            return Err(JsValue::from_str(&format!(
+                "Cannot read response body: {:?}",
+                err
+            )));
         }
     };
 
@@ -232,9 +236,12 @@ pub async fn init_tunnel(
         console::log_1(
             &format!(
                 "NTor shared secret: {:?}",
-                init_tunnel_result.ntor_client.get_shared_secret().expect_throw(
-                    "Shared secret should be available after successful tunnel initialization"
-                )
+                init_tunnel_result
+                    .ntor_client
+                    .get_shared_secret()
+                    .expect_throw(
+                        "Shared secret should be available after successful tunnel initialization"
+                    )
             )
             .into(),
         );
@@ -279,7 +286,7 @@ pub fn init_encrypted_tunnels(
         let forward_proxy_url = forward_proxy_url.clone();
 
         // update the urls as connecting before scheduling the background task to initialize the tunnel
-        InMemoryCache::set_connecting_network_state(&service_provider.url);
+        InMemoryCache::set_connecting_network_state(&base_url);
 
         // schedule the background task to initialize the tunnel
         wasm_bindgen_futures::spawn_local(async move {

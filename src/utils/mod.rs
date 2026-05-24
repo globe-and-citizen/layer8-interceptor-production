@@ -1,11 +1,11 @@
-mod print;
-mod headers;
 mod body;
+mod headers;
+mod print;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 
+pub use body::*;
 pub use headers::*;
 pub use print::*;
-pub use body::*;
 
 pub(crate) async fn sleep(delay: i32) {
     let mut cb = |resolve: js_sys::Function, _: js_sys::Function| {
@@ -98,4 +98,3 @@ fn escape(str: &str) -> String {
 fn normalize_linefeeds(value: &str) -> String {
     value.replace("\r\n", "\n").replace('\r', "\n")
 }
-

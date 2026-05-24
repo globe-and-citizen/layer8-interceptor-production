@@ -1,15 +1,15 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{console};
+use web_sys::console;
 
 use crate::init_tunnel::init_tunnel;
 use crate::storage::InMemoryCache;
+use crate::types::response::handle_response;
 use crate::types::{
     http_caller::ActualHttpCaller,
     network_state::{NetworkStateOpen, NetworkStateResponse},
     request::L8RequestObject,
 };
 use crate::{constants, utils};
-use crate::types::response::handle_response;
 
 /// Performs an HTTP request compatible with the Web Fetch API, routed through an internal proxy/tunnel.
 /// Behavior:
@@ -55,12 +55,15 @@ pub async fn fetch(
     loop {
         let network_state_open = InMemoryCache::get_network_state(&backend_base_url).await?;
 
-        let resp = match req_object.l8_send(&network_state_open, ActualHttpCaller).await {
+        let resp = match req_object
+            .l8_send(&network_state_open, ActualHttpCaller)
+            .await
+        {
             Ok(resp) => handle_response(&network_state_open, attempts > 0, resp).await?,
             Err(err) => {
                 // we can reinitialize the network state
                 if attempts == 0 {
-                    return Err(err)
+                    return Err(err);
                 };
 
                 NetworkStateResponse::Reinitialize
