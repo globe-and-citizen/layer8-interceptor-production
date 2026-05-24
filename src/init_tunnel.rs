@@ -177,7 +177,7 @@ pub async fn init_tunnel(
 
         let req_builder = reqwest::Client::new()
             .post(request_url.clone())
-            .header("Content-Length", "application/json")
+            .header("Content-Type", "application/json")
             .header("Retry-count", retry_attempt)
             .body(request_body.to_string());
 
@@ -280,7 +280,7 @@ pub fn init_encrypted_tunnels(
 
         // update the urls as connecting before scheduling the background task to initialize the tunnel
         InMemoryCache::set_connecting_network_state(&service_provider.url);
-        
+
         // schedule the background task to initialize the tunnel
         wasm_bindgen_futures::spawn_local(async move {
             match init_tunnel(backend_url, ActualHttpCaller).await {

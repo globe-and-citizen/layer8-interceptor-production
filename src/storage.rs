@@ -43,7 +43,7 @@ impl InMemoryCache {
     /// Returns a [`JsValue`] error string when the network state is missing or errored.
     ///
     /// # Note
-    /// This method is intended for **internal use only**. It is called by `fetch` and
+    /// This method is intended for **internal use** and public for testing only. It is called by `fetch` and
     /// `L8RequestObject::l8_send` to resolve the current network state prior to making
     /// requests. It transparently handles waiting for tunnel initialization and propagates
     /// any errors encountered. If no initialization process is started, this method will

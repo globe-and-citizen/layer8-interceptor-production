@@ -23,8 +23,6 @@ pub struct L8ResponseObject {
     pub headers: HashMap<String, serde_json::Value>,
 
     /// Raw response body bytes.
-    ///
-    /// By the `/proxy` contract this is always an `EncryptedMessage` and is never empty.
     pub body: Vec<u8>,
 
     /* Below fields are present but not used because ResponseInit does not support */

@@ -82,7 +82,7 @@ mod tests_benchmark {
 
         console::log_1(
             &format!(
-                "Average durarion: {:.6}ms, Standard deviation: {:.6}ms, Best: {:.6}ms, Worst: {:.6}ms",
+                "Average duration: {:.6}ms, Standard deviation: {:.6}ms, Best: {:.6}ms, Worst: {:.6}ms",
                 average_duration, standard_deviation, best_duration, worst_duration
             )
                 .into(),
@@ -323,7 +323,7 @@ mod tests_l8_request_object {
                     HttpCallerResponse::Raw(_) => {
                         panic!("Unexpected raw response");
                     }
-                    HttpCallerResponse::Err(err) => {
+                    HttpCallerResponse::MockErr(err) => {
                         panic!("Unexpected error: {}", err.msg);
                     }
                 }

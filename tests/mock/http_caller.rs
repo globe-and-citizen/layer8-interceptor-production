@@ -126,7 +126,7 @@ impl MockHttpCaller {
                 mock_data.l8_request_object.body,
             )
         {
-            return Ok(HttpCallerResponse::Err(MockHttpError {
+            return Ok(HttpCallerResponse::MockErr(MockHttpError {
                 msg: "Decrypted request body does not match expected mock data".to_string(),
             }));
         }

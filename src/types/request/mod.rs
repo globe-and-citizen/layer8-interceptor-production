@@ -192,8 +192,6 @@ impl L8RequestObject {
     }
 
     /// Sends the request using the Layer8 network state.
-    /// This method can recurse only once to retry sending the request if it fails.
-    /// If the request fails again, it will return an error.
     pub async fn l8_send(
         &self,
         network_state_open: &NetworkStateOpen,
