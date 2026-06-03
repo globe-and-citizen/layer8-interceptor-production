@@ -1,18 +1,31 @@
 use {
     bytes::Bytes,
     hyper::{HeaderMap, StatusCode},
-    ntor::common::InitSessionMessage,
-    reqwest::{Error, RequestBuilder, Response},
-    serde::{Deserialize, de::DeserializeOwned},
-    serde_json::json,
-    wasm_bindgen::UnwrapThrowExt,
+    serde::de::DeserializeOwned,
+    std::future::Future,
 };
+
+#[derive(Debug)]
+pub struct MockHttpResponse {
+    pub status: StatusCode,
+    pub status_str: String,
+    pub headers: HeaderMap,
+    pub body: Vec<u8>,
+    pub url: url::Url,
+}
+
+#[derive(Debug)]
+pub struct MockHttpError {
+    pub msg: String,
+}
 
 /// Represents the response from an HTTP call, which can either be a `reqwest::Response` or raw data.
 #[derive(Debug)]
 pub enum HttpCallerResponse {
-    Reqwest(Response),
+    Reqwest(reqwest::Response),
+    Mock(MockHttpResponse),
     Raw(Vec<u8>),
+    MockErr(MockHttpError),
 }
 
 /// A trait that defines the behavior of an HTTP caller, allowing for different implementations
@@ -20,8 +33,8 @@ pub enum HttpCallerResponse {
 pub trait HttpCaller: Clone {
     fn send(
         self,
-        request_builder: RequestBuilder,
-    ) -> impl Future<Output = Result<HttpCallerResponse, Error>>;
+        request_builder: reqwest::RequestBuilder,
+    ) -> impl Future<Output = Result<HttpCallerResponse, reqwest::Error>>;
 }
 
 /// An marker implementation of `HttpCaller` that uses `reqwest::Client` to send requests.
@@ -29,75 +42,11 @@ pub trait HttpCaller: Clone {
 pub struct ActualHttpCaller; //in-mem there's no allocation
 
 impl HttpCaller for ActualHttpCaller {
-    async fn send(self, request_builder: RequestBuilder) -> Result<HttpCallerResponse, Error> {
+    async fn send(
+        self,
+        request_builder: reqwest::RequestBuilder,
+    ) -> Result<HttpCallerResponse, reqwest::Error> {
         Ok(HttpCallerResponse::Reqwest(request_builder.send().await?))
-    }
-}
-
-/// A mock implementation of `HttpCaller` for testing purposes, which returns a predefined response.
-#[derive(Clone)]
-pub struct MockHttpCaller {
-    pub data: Vec<u8>,
-    pub init: bool,
-}
-
-impl HttpCaller for MockHttpCaller {
-    async fn send(self, req_builder: RequestBuilder) -> Result<HttpCallerResponse, Error> {
-        if self.init {
-            let req = req_builder.build()?;
-            let pub_key: [u8; 32] = {
-                #[derive(Deserialize)]
-                struct ExpectedRequest {
-                    public_key: Vec<u8>,
-                }
-
-                let json_body = serde_json::from_slice::<ExpectedRequest>(
-                    req.body()
-                        .expect_throw("Request body should be set")
-                        .as_bytes()
-                        .expect_throw("we expect the body to be bytes"),
-                )
-                .expect_throw("Failed to deserialize request body to ExpectedRequest struct");
-
-                json_body
-                    .public_key
-                    .try_into()
-                    .expect_throw("Failed to convert to [u8; 32]")
-            };
-
-            let server_id = "server123".to_string();
-            let ntor_secret = [1, 2]
-                .repeat(16)
-                .as_slice()
-                .try_into()
-                .expect_throw("Failed to convert to [u8; 32]");
-
-            let mut ntor_server =
-                ntor::server::NTorServer::new_with_secret(server_id.clone(), ntor_secret);
-
-            let init_session_response = {
-                // Client initializes session with the server
-                let init_session_msg = InitSessionMessage::from(pub_key.to_vec());
-                ntor_server.accept_init_session_request(&init_session_msg)
-            };
-
-            let cert = ntor_server.get_certificate();
-
-            let response = json!({
-                "ephemeral_public_key": init_session_response.public_key(),
-                "t_b_hash": init_session_response.t_b_hash(),
-                "static_public_key": cert.public_key(),
-                "server_id": server_id,
-                "int_rp_jwt": "test_jwt1",
-                "int_fp_jwt": "test_jwt2",
-            });
-
-            return Ok(HttpCallerResponse::Raw(
-                serde_json::to_vec(&response).expect_throw("Failed to serialize response to JSON"),
-            ));
-        }
-
-        Ok(HttpCallerResponse::Raw(self.data))
     }
 }
 
@@ -107,6 +56,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.status(),
             HttpCallerResponse::Raw(_) => StatusCode::OK,
+            HttpCallerResponse::Mock(response) => response.status,
+            HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -115,6 +66,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.headers(),
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
+            HttpCallerResponse::Mock(response) => &response.headers,
+            HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -123,6 +76,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.headers_mut(),
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
+            HttpCallerResponse::Mock(response) => &mut response.headers,
+            HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -131,6 +86,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.content_length(),
             HttpCallerResponse::Raw(data) => Some(data.len() as u64),
+            HttpCallerResponse::Mock(response) => response.body.len().try_into().ok(),
+            HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -139,6 +96,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.url(),
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
+            HttpCallerResponse::Mock(response) => &response.url,
+            HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -147,6 +106,9 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.json().await,
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
+            HttpCallerResponse::Mock(response) => Ok(serde_json::from_slice(&response.body)
+                .expect("failed to deserialize mock response body as JSON")),
+            HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -155,6 +117,10 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.text().await,
             HttpCallerResponse::Raw(_) => unimplemented!("not implemented for tests"),
+            HttpCallerResponse::Mock(response) => {
+                Ok(String::from_utf8_lossy(&response.body).into_owned())
+            }
+            HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -163,6 +129,8 @@ impl HttpCallerResponse {
         match self {
             HttpCallerResponse::Reqwest(response) => response.bytes().await,
             HttpCallerResponse::Raw(data) => Ok(data.clone().into()),
+            HttpCallerResponse::Mock(response) => Ok(Bytes::from(response.body)),
+            HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -174,6 +142,13 @@ impl HttpCallerResponse {
                 Ok(HttpCallerResponse::Reqwest(response))
             }
             HttpCallerResponse::Raw(data) => Ok(HttpCallerResponse::Raw(data)),
+            HttpCallerResponse::Mock(response) => {
+                if response.status.is_client_error() || response.status.is_server_error() {
+                    panic!("mock response returned error status: {}", response.status);
+                }
+                Ok(HttpCallerResponse::Mock(response))
+            }
+            HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }
 
@@ -185,6 +160,13 @@ impl HttpCallerResponse {
                 Ok(self)
             }
             HttpCallerResponse::Raw(_) => Ok(self),
+            HttpCallerResponse::Mock(response) => {
+                if response.status.is_client_error() || response.status.is_server_error() {
+                    panic!("mock response returned error status: {}", response.status);
+                }
+                Ok(self)
+            }
+            HttpCallerResponse::MockErr(_) => unimplemented!("not implemented for tests"),
         }
     }
 }

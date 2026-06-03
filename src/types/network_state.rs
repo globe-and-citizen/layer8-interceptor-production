@@ -17,7 +17,7 @@ pub(crate) enum NetworkState {
 /// This is the state of the network connection for a service provider when it has
 /// completed key exchange and is ready to be used.
 #[derive(Debug, Clone)]
-pub(crate) struct NetworkStateOpen {
+pub struct NetworkStateOpen {
     pub http_client: reqwest::Client,
     pub init_tunnel_result: InitTunnelResult,
     pub forward_proxy_url: String,
@@ -37,7 +37,7 @@ impl NetworkStateOpen {
     pub fn ntor_encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, JsValue> {
         let (nonce, encrypted) = self
             .init_tunnel_result
-            .client
+            .ntor_client
             .wasm_encrypt(data)
             .map_err(|e| JsValue::from_str(&format!("Failed to encrypt data: {}", e)))?;
 
@@ -65,7 +65,7 @@ impl NetworkStateOpen {
 
         let decrypted_response = self
             .init_tunnel_result
-            .client
+            .ntor_client
             .wasm_decrypt(encrypted_data.0.nonce.to_vec(), encrypted_data.0.data)
             .map_err(|e| JsValue::from_str(&format!("Failed to decrypt data: {}", e)))?;
 

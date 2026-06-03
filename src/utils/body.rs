@@ -1,8 +1,8 @@
+use crate::storage::InMemoryCache;
+use crate::utils::{escape, normalize_linefeeds};
 use js_sys::Uint8Array;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::console;
-use crate::storage::InMemoryCache;
-use crate::utils::{escape, normalize_linefeeds};
 
 /// Converts an instance of `web_sys::FormData` to a `Uint8Array`
 ///
