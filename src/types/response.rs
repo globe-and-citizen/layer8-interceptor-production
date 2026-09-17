@@ -2,10 +2,12 @@ use crate::storage::InMemoryCache;
 use crate::types::http_caller::HttpCallerResponse;
 use crate::types::network_state::{NetworkStateOpen, NetworkStateResponse};
 use crate::utils;
+use bincode;
 use serde::Deserialize;
+use serde_bytes;
 use std::collections::HashMap;
-use wasm_bindgen::{JsValue, throw_str};
-use web_sys::{ResponseInit, console};
+use wasm_bindgen::{throw_str, JsValue};
+use web_sys::{console, ResponseInit};
 
 /// Represents a decrypted HTTP response received from the Layer8 proxy.
 ///
@@ -23,6 +25,7 @@ pub struct L8ResponseObject {
     pub headers: HashMap<String, serde_json::Value>,
 
     /// Raw response body bytes.
+    #[serde(with = "serde_bytes")] // Instructs serde to treat Vec<u8> as compact binary
     pub body: Vec<u8>,
 
     /* Below fields are present but not used because ResponseInit does not support */
@@ -80,6 +83,11 @@ impl L8ResponseObject {
                 throw_str(&format!("Failed to construct JS Response: {:?}", err));
             }
         }
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, bincode::error::DecodeError> {
+        let (obj, _len) = bincode::serde::decode_from_slice(bytes, bincode::config::standard())?;
+        Ok(obj)
     }
 }
 
@@ -157,7 +165,7 @@ pub async fn handle_response(
 
     let decrypted_response = network_state_open.ntor_decrypt(body)?;
 
-    let l8_response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)
+   let l8_response = L8ResponseObject::from_bytes(&decrypted_response)
         .map_err(|e| JsValue::from_str(&format!("Failed to deserialize response: {}", e)))?;
 
     if dev_flag {

@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::{AbortSignal, console};
+use serde_bytes;
+use bincode;
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
@@ -18,6 +20,8 @@ pub struct L8RequestObject {
     pub uri: String,
     pub method: String,
     pub headers: HashMap<String, serde_json::Value>,
+    
+    #[serde(with = "serde_bytes")] // Instructs serde to treat Vec<u8> as compact binary
     pub body: Vec<u8>,
 
     // User agent configurations
@@ -76,6 +80,15 @@ impl L8RequestObject {
         };
 
         Self::from_request_options(uri, options).await
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, bincode::error::EncodeError> {
+        bincode::serde::encode_to_vec(self, bincode::config::standard())
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, bincode::error::DecodeError> {
+        let (obj, _len) = bincode::serde::decode_from_slice(bytes, bincode::config::standard())?;
+        Ok(obj)
     }
 
     /// Create a L8RequestObject instance from a web_sys::RequestInit object
@@ -202,9 +215,8 @@ impl L8RequestObject {
         http_caller: impl HttpCaller,
     ) -> Result<HttpCallerResponse, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
-        let data = serde_json::to_vec(&self).expect_throw(
-            "we expect the L8requestObject to be asserted as json serializable at compile time",
-        );
+
+        let data = self.to_bytes().expect_throw("we expect the L8requestObject to be asserted as json serializable at compile time");
 
         let msg = network_state_open.ntor_encrypt(data)?;
         if dev_flag {
