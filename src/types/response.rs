@@ -1,11 +1,10 @@
 use crate::storage::InMemoryCache;
+use crate::types::headers::L8Headers;
 use crate::types::http_caller::HttpCallerResponse;
 use crate::types::network_state::{NetworkStateOpen, NetworkStateResponse};
-use crate::utils;
 use bincode;
 use serde::Deserialize;
 use serde_bytes;
-use std::collections::HashMap;
 use wasm_bindgen::{throw_str, JsValue};
 use web_sys::{console, ResponseInit};
 
@@ -22,7 +21,7 @@ pub struct L8ResponseObject {
     pub status_text: String,
 
     /// Response headers as a map of header name to JSON value.
-    pub headers: HashMap<String, serde_json::Value>,
+    pub headers: L8Headers,
 
     /// Raw response body bytes.
     #[serde(with = "serde_bytes")] // Instructs serde to treat Vec<u8> as compact binary
@@ -66,7 +65,8 @@ impl L8ResponseObject {
         resp_init.set_status(self.status);
         resp_init.set_status_text(&self.status_text);
 
-        let js_headers = utils::hashmap_to_js_headers(&self.headers)?;
+        // let js_headers = utils::hashmap_to_js_headers(&self.headers)?;
+        let js_headers = self.headers.to_web_sys()?;
         resp_init.set_headers(&js_headers);
 
         let mut body = None;
@@ -165,7 +165,7 @@ pub async fn handle_response(
 
     let decrypted_response = network_state_open.ntor_decrypt(body)?;
 
-   let l8_response = L8ResponseObject::from_bytes(&decrypted_response)
+    let l8_response = L8ResponseObject::from_bytes(&decrypted_response)
         .map_err(|e| JsValue::from_str(&format!("Failed to deserialize response: {}", e)))?;
 
     if dev_flag {

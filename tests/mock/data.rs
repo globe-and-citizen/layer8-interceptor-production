@@ -1,3 +1,4 @@
+use l8_intercept::types::headers::L8Headers;
 use l8_intercept::types::request::L8RequestObject;
 use l8_intercept::types::response::L8ResponseObject;
 use std::collections::HashMap;
@@ -37,7 +38,7 @@ pub(crate) fn get_mock_data() -> [MockData; 2] {
         l8_request_object: L8RequestObject {
             uri: "/me".to_string(),
             method: "GET".to_string(),
-            headers: HashMap::new(),
+            headers: L8Headers::new(),
             body: vec![],
             body_used: false,
             cache: "default".to_string(),
@@ -94,46 +95,50 @@ pub(crate) fn get_mock_data() -> [MockData; 2] {
         l8_response_object: L8ResponseObject {
             status: 401,
             status_text: "Unauthorized".to_string(),
-            headers: [
-                (
-                    "date".to_string(),
-                    serde_json::Value::String("Thu, 21 May 2026 04:25:36 GMT".to_string()),
-                ),
-                (
-                    "content-length".to_string(),
-                    serde_json::Value::String("23".to_string()),
-                ),
-                (
-                    "vary".to_string(),
-                    serde_json::Value::String("Origin".to_string()),
-                ),
-                (
-                    "keep-alive".to_string(),
-                    serde_json::Value::String("timeout=5".to_string()),
-                ),
-                (
-                    "connection".to_string(),
-                    serde_json::Value::String("keep-alive".to_string()),
-                ),
-                (
-                    "x-powered-by".to_string(),
-                    serde_json::Value::String("Express".to_string()),
-                ),
-                (
-                    "etag".to_string(),
-                    serde_json::Value::String("W/\"17-VIEFRCuHQRfwSbpuk4+iLdGeWgY\"".to_string()),
-                ),
-                (
-                    "content-type".to_string(),
-                    serde_json::Value::String("application/json; charset=utf-8".to_string()),
-                ),
-                (
-                    "access-control-allow-credentials".to_string(),
-                    serde_json::Value::String("true".to_string()),
-                ),
-            ]
-            .into_iter()
-            .collect(),
+            headers: L8Headers::from_hashmap(
+                [
+                    (
+                        "date".to_string(),
+                        serde_json::Value::String("Thu, 21 May 2026 04:25:36 GMT".to_string()),
+                    ),
+                    (
+                        "content-length".to_string(),
+                        serde_json::Value::String("23".to_string()),
+                    ),
+                    (
+                        "vary".to_string(),
+                        serde_json::Value::String("Origin".to_string()),
+                    ),
+                    (
+                        "keep-alive".to_string(),
+                        serde_json::Value::String("timeout=5".to_string()),
+                    ),
+                    (
+                        "connection".to_string(),
+                        serde_json::Value::String("keep-alive".to_string()),
+                    ),
+                    (
+                        "x-powered-by".to_string(),
+                        serde_json::Value::String("Express".to_string()),
+                    ),
+                    (
+                        "etag".to_string(),
+                        serde_json::Value::String(
+                            "W/\"17-VIEFRCuHQRfwSbpuk4+iLdGeWgY\"".to_string(),
+                        ),
+                    ),
+                    (
+                        "content-type".to_string(),
+                        serde_json::Value::String("application/json; charset=utf-8".to_string()),
+                    ),
+                    (
+                        "access-control-allow-credentials".to_string(),
+                        serde_json::Value::String("true".to_string()),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             body: vec![
                 123, 34, 97, 117, 116, 104, 101, 110, 116, 105, 99, 97, 116, 101, 100, 34, 58, 102,
                 97, 108, 115, 101, 125,
@@ -159,7 +164,7 @@ pub(crate) fn get_mock_data() -> [MockData; 2] {
         l8_request_object: L8RequestObject {
             uri: "/profile/test".to_string(),
             method: "GET".to_string(),
-            headers: HashMap::new(),
+            headers: L8Headers::new(),
             body: vec![],
             body_used: false,
             cache: "default".to_string(),
@@ -227,46 +232,50 @@ pub(crate) fn get_mock_data() -> [MockData; 2] {
         l8_response_object: L8ResponseObject {
             status: 200,
             status_text: "OK".to_string(),
-            headers: [
-                (
-                    "date".to_string(),
-                    serde_json::Value::String("Thu, 21 May 2026 04:26:41 GMT".to_string()),
-                ),
-                (
-                    "content-length".to_string(),
-                    serde_json::Value::String("84".to_string()),
-                ),
-                (
-                    "vary".to_string(),
-                    serde_json::Value::String("Origin".to_string()),
-                ),
-                (
-                    "x-powered-by".to_string(),
-                    serde_json::Value::String("Express".to_string()),
-                ),
-                (
-                    "connection".to_string(),
-                    serde_json::Value::String("keep-alive".to_string()),
-                ),
-                (
-                    "keep-alive".to_string(),
-                    serde_json::Value::String("timeout=5".to_string()),
-                ),
-                (
-                    "etag".to_string(),
-                    serde_json::Value::String("W/\"54-ixZzo2slWOb49jyPhvzKYcRgt0Q\"".to_string()),
-                ),
-                (
-                    "content-type".to_string(),
-                    serde_json::Value::String("application/json; charset=utf-8".to_string()),
-                ),
-                (
-                    "access-control-allow-credentials".to_string(),
-                    serde_json::Value::String("true".to_string()),
-                ),
-            ]
-            .into_iter()
-            .collect(),
+            headers: L8Headers::from_hashmap(
+                [
+                    (
+                        "date".to_string(),
+                        serde_json::Value::String("Thu, 21 May 2026 04:26:41 GMT".to_string()),
+                    ),
+                    (
+                        "content-length".to_string(),
+                        serde_json::Value::String("84".to_string()),
+                    ),
+                    (
+                        "vary".to_string(),
+                        serde_json::Value::String("Origin".to_string()),
+                    ),
+                    (
+                        "x-powered-by".to_string(),
+                        serde_json::Value::String("Express".to_string()),
+                    ),
+                    (
+                        "connection".to_string(),
+                        serde_json::Value::String("keep-alive".to_string()),
+                    ),
+                    (
+                        "keep-alive".to_string(),
+                        serde_json::Value::String("timeout=5".to_string()),
+                    ),
+                    (
+                        "etag".to_string(),
+                        serde_json::Value::String(
+                            "W/\"54-ixZzo2slWOb49jyPhvzKYcRgt0Q\"".to_string(),
+                        ),
+                    ),
+                    (
+                        "content-type".to_string(),
+                        serde_json::Value::String("application/json; charset=utf-8".to_string()),
+                    ),
+                    (
+                        "access-control-allow-credentials".to_string(),
+                        serde_json::Value::String("true".to_string()),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            ),
             body: vec![
                 123, 34, 117, 115, 101, 114, 110, 97, 109, 101, 34, 58, 34, 116, 101, 115, 116, 34,
                 44, 34, 109, 101, 116, 97, 100, 97, 116, 97, 34, 58, 123, 34, 101, 109, 97, 105,

@@ -2,25 +2,25 @@ mod body;
 pub mod mode_and_policies;
 
 use crate::storage::InMemoryCache;
+use crate::types::headers::L8Headers;
 use crate::types::http_caller::{HttpCaller, HttpCallerResponse};
 use crate::types::network_state::NetworkStateOpen;
 use crate::utils;
-use body::L8BodyType;
-use mode_and_policies::{L8RequestMode, get_request_referer_policy};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
-use web_sys::{AbortSignal, console};
-use serde_bytes;
 use bincode;
+use body::L8BodyType;
+use mode_and_policies::{get_request_referer_policy, L8RequestMode};
+use serde::{Deserialize, Serialize};
+use serde_bytes;
+use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
+use web_sys::{console, AbortSignal};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 pub struct L8RequestObject {
     pub uri: String,
     pub method: String,
-    pub headers: HashMap<String, serde_json::Value>,
-    
+    pub headers: L8Headers,
+
     #[serde(with = "serde_bytes")] // Instructs serde to treat Vec<u8> as compact binary
     pub body: Vec<u8>,
 
@@ -170,7 +170,7 @@ impl L8RequestObject {
 
         let raw_headers = options.get_headers();
         if !raw_headers.is_undefined() && !raw_headers.is_null() {
-            let headers = utils::headers_to_reqwest_headers(raw_headers)?;
+            let headers = L8Headers::from_jsvalue(raw_headers)?;
             req_wrapper.headers.extend(headers);
         }
 
@@ -203,7 +203,7 @@ impl L8RequestObject {
                 .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?;
         };
 
-        req_wrapper.headers = utils::headers_to_reqwest_headers(JsValue::from(req.headers()))?;
+        req_wrapper.headers = L8Headers::from_jsvalue(JsValue::from(req.headers()))?;
         req_wrapper.mode = Some(L8RequestMode::Cors); // Default mode for Request objects
         Ok(req_wrapper)
     }
@@ -216,7 +216,9 @@ impl L8RequestObject {
     ) -> Result<HttpCallerResponse, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
 
-        let data = self.to_bytes().expect_throw("we expect the L8requestObject to be asserted as json serializable at compile time");
+        let data = self.to_bytes().expect_throw(
+            "we expect the L8requestObject to be asserted as json serializable at compile time",
+        );
 
         let msg = network_state_open.ntor_encrypt(data)?;
         if dev_flag {
