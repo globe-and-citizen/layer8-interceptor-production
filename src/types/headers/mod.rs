@@ -6,38 +6,33 @@ use web_sys::console;
 use crate::storage::InMemoryCache;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
-pub struct L8Headers(HashMap<String, serde_json::Value>);
+pub struct L8Headers(HashMap<String, String>);
 
 impl L8Headers {
     pub fn new() -> Self {
         Self(HashMap::new())
     }
     
-    pub fn hashmap(&self) -> &HashMap<String, serde_json::Value> {
+    pub fn hashmap(&self) -> &HashMap<String, String> {
         &self.0
     }
     
-    pub fn from_hashmap(hm: HashMap<String, serde_json::Value>) -> Self {
+    pub fn from_hashmap(hm: HashMap<String, String>) -> Self {
         Self(hm)
     }
 
-    /// Read-only access to a header value
-    pub fn get(&self, key: &str) -> &serde_json::Value {
-        &self.0[key]
+    pub fn get(&self, key: &str) -> String {
+        self.0[key].to_string()
     }
 
-    /// Read-only access to a header value as a string slice (helper)
-    pub fn get_str(&self, key: &str) -> Option<&str> {
-        self.0.get(key).and_then(|v| v.as_str())
-    }
 
     /// Controlled insertion method
-    pub fn insert(&mut self, key: impl Into<String>, value: impl Into<serde_json::Value>) {
+    pub fn insert(&mut self, key: impl Into<String>, value: impl Into<String>) {
         self.0.insert(key.into(), value.into());
     }
 
     /// Read-only iterator over entries (prevents direct map mutations)
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &serde_json::Value)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> {
         self.0.iter()
     }
 

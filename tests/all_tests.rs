@@ -346,44 +346,24 @@ mod tests_l8_response_object {
                 status_text: "Unauthorized".to_string(),
                 headers: L8Headers::from_hashmap(
                     [
-                        (
-                            "Content-Type".to_string(),
-                            serde_json::Value::String("application/json".into()),
-                        ),
-                        (
-                            "keep-alive".to_string(),
-                            serde_json::Value::String("timeout=5".to_string()),
-                        ),
+                        ("Content-Type".to_string(), "application/json".into()),
+                        ("keep-alive".to_string(), "timeout=5".to_string()),
                         (
                             "date".to_string(),
-                            serde_json::Value::String("Tue, 19 May 2026 08:32:28 GMT".to_string()),
+                            "Tue, 19 May 2026 08:32:28 GMT".to_string(),
                         ),
                         (
                             "access-control-allow-credentials".to_string(),
-                            serde_json::Value::String("true".to_string()),
+                            "true".to_string(),
                         ),
-                        (
-                            "content-length".to_string(),
-                            serde_json::Value::String("23".to_string()),
-                        ),
-                        (
-                            "connection".to_string(),
-                            serde_json::Value::String("keep-alive".to_string()),
-                        ),
+                        ("content-length".to_string(), "23".to_string()),
+                        ("connection".to_string(), "keep-alive".to_string()),
                         (
                             "etag".to_string(),
-                            serde_json::Value::String(
-                                "W/\"17-VIEFRCuHQRfwSbpuk4+iLdGeWgY\"".to_string(),
-                            ),
+                            "W/\"17-VIEFRCuHQRfwSbpuk4+iLdGeWgY\"".to_string(),
                         ),
-                        (
-                            "vary".to_string(),
-                            serde_json::Value::String("Origin".to_string()),
-                        ),
-                        (
-                            "x-powered-by".to_string(),
-                            serde_json::Value::String("Express".to_string()),
-                        ),
+                        ("vary".to_string(), "Origin".to_string()),
+                        ("x-powered-by".to_string(), "Express".to_string()),
                     ]
                     .iter()
                     .cloned()
@@ -461,14 +441,8 @@ mod tests_l8_response_object {
                 status_text: "OK".to_string(),
                 headers: L8Headers::from_hashmap(
                     [
-                        (
-                            "content-type".to_string(),
-                            serde_json::Value::String("application/json".to_string()),
-                        ),
-                        (
-                            "x-request-id".to_string(),
-                            serde_json::Value::String("abc-123".to_string()),
-                        ),
+                        ("content-type".to_string(), "application/json".to_string()),
+                        ("x-request-id".to_string(), "abc-123".to_string()),
                     ]
                     .iter()
                     .cloned()
@@ -508,13 +482,10 @@ mod tests_l8_response_object {
                 status: 204,
                 status_text: "No Content".to_string(),
                 headers: L8Headers::from_hashmap(
-                    [(
-                        "content-type".to_string(),
-                        serde_json::Value::String("application/json".to_string()),
-                    )]
-                    .iter()
-                    .cloned()
-                    .collect(),
+                    [("content-type".to_string(), "application/json".to_string())]
+                        .iter()
+                        .cloned()
+                        .collect(),
                 ),
                 body: vec![],
                 ok: true,

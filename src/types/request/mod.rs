@@ -21,6 +21,8 @@ pub struct L8RequestObject {
     pub method: String,
     pub headers: L8Headers,
 
+    // Bincode doesn't support field skipping, we can't use bincode directly
+    // serde_bytes is a workaround to use serde with bincode
     #[serde(with = "serde_bytes")] // Instructs serde to treat Vec<u8> as compact binary
     pub body: Vec<u8>,
 
@@ -138,11 +140,7 @@ impl L8RequestObject {
 
                     req_wrapper.headers.insert(
                         "Content-Type".to_string(),
-                        serde_json::to_value(&format!(
-                            "multipart/form-data; boundary={}",
-                            boundary
-                        ))
-                        .expect_throw("a valid string is JSON serializable"),
+                        format!("multipart/form-data; boundary={}", boundary),
                     );
 
                     req_wrapper.body = data;
@@ -306,24 +304,15 @@ impl L8RequestObject {
         let referrer_policy = get_request_referer_policy(options);
 
         if !referrer_policy.is_empty() {
-            self.headers.insert(
-                "Referrer-Policy".to_string(),
-                serde_json::to_value(&referrer_policy).expect_throw(
-                    "we expect the referrer policy to be a valid string that can be JSON serialized",
-                ),
-            );
+            self.headers
+                .insert("Referrer-Policy".to_string(), referrer_policy.to_string());
         }
 
         // referrer
         if referrer_policy != "no-referrer" {
             // If the referrer policy is not "no-referrer", we can set the referrer header.
             if let Some(referrer) = options.get_referrer() {
-                self.headers.insert(
-                    "Referrer".to_string(),
-                    serde_json::to_value(&referrer).expect_throw(
-                        "we expect the referrer to be a valid string that can be JSON serialized",
-                    ),
-                );
+                self.headers.insert("Referrer".to_string(), referrer);
             }
         }
 

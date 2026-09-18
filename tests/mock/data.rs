@@ -99,41 +99,24 @@ pub(crate) fn get_mock_data() -> [MockData; 2] {
                 [
                     (
                         "date".to_string(),
-                        serde_json::Value::String("Thu, 21 May 2026 04:25:36 GMT".to_string()),
+                        "Thu, 21 May 2026 04:25:36 GMT".to_string(),
                     ),
-                    (
-                        "content-length".to_string(),
-                        serde_json::Value::String("23".to_string()),
-                    ),
-                    (
-                        "vary".to_string(),
-                        serde_json::Value::String("Origin".to_string()),
-                    ),
-                    (
-                        "keep-alive".to_string(),
-                        serde_json::Value::String("timeout=5".to_string()),
-                    ),
-                    (
-                        "connection".to_string(),
-                        serde_json::Value::String("keep-alive".to_string()),
-                    ),
-                    (
-                        "x-powered-by".to_string(),
-                        serde_json::Value::String("Express".to_string()),
-                    ),
+                    ("content-length".to_string(), "23".to_string()),
+                    ("vary".to_string(), "Origin".to_string()),
+                    ("keep-alive".to_string(), "timeout=5".to_string()),
+                    ("connection".to_string(), "keep-alive".to_string()),
+                    ("x-powered-by".to_string(), "Express".to_string()),
                     (
                         "etag".to_string(),
-                        serde_json::Value::String(
-                            "W/\"17-VIEFRCuHQRfwSbpuk4+iLdGeWgY\"".to_string(),
-                        ),
+                        "W/\"17-VIEFRCuHQRfwSbpuk4+iLdGeWgY\"".to_string(),
                     ),
                     (
                         "content-type".to_string(),
-                        serde_json::Value::String("application/json; charset=utf-8".to_string()),
+                        "application/json; charset=utf-8".to_string(),
                     ),
                     (
                         "access-control-allow-credentials".to_string(),
-                        serde_json::Value::String("true".to_string()),
+                        "true".to_string(),
                     ),
                 ]
                 .into_iter()
@@ -236,41 +219,24 @@ pub(crate) fn get_mock_data() -> [MockData; 2] {
                 [
                     (
                         "date".to_string(),
-                        serde_json::Value::String("Thu, 21 May 2026 04:26:41 GMT".to_string()),
+                        "Thu, 21 May 2026 04:26:41 GMT".to_string(),
                     ),
-                    (
-                        "content-length".to_string(),
-                        serde_json::Value::String("84".to_string()),
-                    ),
-                    (
-                        "vary".to_string(),
-                        serde_json::Value::String("Origin".to_string()),
-                    ),
-                    (
-                        "x-powered-by".to_string(),
-                        serde_json::Value::String("Express".to_string()),
-                    ),
-                    (
-                        "connection".to_string(),
-                        serde_json::Value::String("keep-alive".to_string()),
-                    ),
-                    (
-                        "keep-alive".to_string(),
-                        serde_json::Value::String("timeout=5".to_string()),
-                    ),
+                    ("content-length".to_string(), "84".to_string()),
+                    ("vary".to_string(), "Origin".to_string()),
+                    ("x-powered-by".to_string(), "Express".to_string()),
+                    ("connection".to_string(), "keep-alive".to_string()),
+                    ("keep-alive".to_string(), "timeout=5".to_string()),
                     (
                         "etag".to_string(),
-                        serde_json::Value::String(
-                            "W/\"54-ixZzo2slWOb49jyPhvzKYcRgt0Q\"".to_string(),
-                        ),
+                        "W/\"54-ixZzo2slWOb49jyPhvzKYcRgt0Q\"".to_string(),
                     ),
                     (
                         "content-type".to_string(),
-                        serde_json::Value::String("application/json; charset=utf-8".to_string()),
+                        "application/json; charset=utf-8".to_string(),
                     ),
                     (
                         "access-control-allow-credentials".to_string(),
-                        serde_json::Value::String("true".to_string()),
+                        "true".to_string(),
                     ),
                 ]
                 .into_iter()
