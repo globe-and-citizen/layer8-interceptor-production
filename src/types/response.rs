@@ -3,7 +3,7 @@ use crate::types::headers::L8Headers;
 use crate::types::http_caller::HttpCallerResponse;
 use crate::types::network_state::{NetworkStateOpen, NetworkStateResponse};
 use bincode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_bytes;
 use wasm_bindgen::{throw_str, JsValue};
 use web_sys::{console, ResponseInit};
@@ -12,7 +12,7 @@ use web_sys::{console, ResponseInit};
 ///
 /// This struct is deserialized from the JSON payload returned by the `/proxy` endpoint
 /// after decryption. It is then reconstructed into a browser-native [`web_sys::Response`].
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct L8ResponseObject {
     /// HTTP status code (e.g. `200`, `401`, `500`, etc.).
     pub status: u16,
@@ -88,6 +88,10 @@ impl L8ResponseObject {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, bincode::error::DecodeError> {
         let (obj, _len) = bincode::serde::decode_from_slice(bytes, bincode::config::standard())?;
         Ok(obj)
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, bincode::error::EncodeError> {
+        bincode::serde::encode_to_vec(self, bincode::config::standard())
     }
 }
 

@@ -215,7 +215,7 @@ impl L8RequestObject {
         let dev_flag = InMemoryCache::get_dev_flag();
 
         let data = self.to_bytes().expect_throw(
-            "we expect the L8requestObject to be asserted as json serializable at compile time",
+            "Failed to serialize the L8RequestObject with bincode",
         );
 
         let msg = network_state_open.ntor_encrypt(data)?;

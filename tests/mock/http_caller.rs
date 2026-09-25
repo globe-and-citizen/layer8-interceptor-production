@@ -52,7 +52,7 @@ impl MockHttpCaller {
                     .as_bytes()
                     .expect_throw("we expect the body to be bytes"),
             )
-            .expect_throw("Failed to deserialize request body to ExpectedRequest struct");
+                .expect_throw("Failed to deserialize request body to ExpectedRequest struct");
 
             json_body
                 .public_key
@@ -115,16 +115,16 @@ impl MockHttpCaller {
         let decrypted_msg = ntor_server
             .decrypt(*encrypted_msg)
             .expect_throw("Failed to decrypt the request body with NTorServer");
-        let l8_req = serde_json::from_slice::<L8RequestObject>(&decrypted_msg)
+        let l8_req = L8RequestObject::from_bytes(&decrypted_msg)
             .expect_throw("Failed to deserialize decrypted message to L8RequestObject");
 
         if (l8_req.uri, l8_req.method, l8_req.headers, l8_req.body)
             != (
-                mock_data.l8_request_object.uri,
-                mock_data.l8_request_object.method,
-                mock_data.l8_request_object.headers,
-                mock_data.l8_request_object.body,
-            )
+            mock_data.l8_request_object.uri,
+            mock_data.l8_request_object.method,
+            mock_data.l8_request_object.headers,
+            mock_data.l8_request_object.body,
+        )
         {
             return Ok(HttpCallerResponse::MockErr(MockHttpError {
                 msg: "Decrypted request body does not match expected mock data".to_string(),
