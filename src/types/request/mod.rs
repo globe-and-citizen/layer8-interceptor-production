@@ -2,13 +2,15 @@ mod body;
 pub mod mode_and_policies;
 
 use crate::storage::InMemoryCache;
+use crate::types::headers::L8Headers;
 use crate::types::http_caller::{HttpCaller, HttpCallerResponse};
 use crate::types::network_state::NetworkStateOpen;
 use crate::utils;
+use bincode;
 use body::L8BodyType;
 use mode_and_policies::{L8RequestMode, get_request_referer_policy};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde_bytes;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 use web_sys::{AbortSignal, console};
 
@@ -17,7 +19,11 @@ use web_sys::{AbortSignal, console};
 pub struct L8RequestObject {
     pub uri: String,
     pub method: String,
-    pub headers: HashMap<String, serde_json::Value>,
+    pub headers: L8Headers,
+
+    // Bincode doesn't support field skipping, we can't use bincode directly
+    // serde_bytes is a workaround to use serde with bincode
+    #[serde(with = "serde_bytes")] // Instructs serde to treat Vec<u8> as compact binary
     pub body: Vec<u8>,
 
     // User agent configurations
@@ -78,6 +84,15 @@ impl L8RequestObject {
         Self::from_request_options(uri, options).await
     }
 
+    pub fn to_bytes(&self) -> Result<Vec<u8>, bincode::error::EncodeError> {
+        bincode::serde::encode_to_vec(self, bincode::config::standard())
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, bincode::error::DecodeError> {
+        let (obj, _len) = bincode::serde::decode_from_slice(bytes, bincode::config::standard())?;
+        Ok(obj)
+    }
+
     /// Create a L8RequestObject instance from a web_sys::RequestInit object
     async fn from_request_options(
         mut uri: String,
@@ -125,11 +140,7 @@ impl L8RequestObject {
 
                     req_wrapper.headers.insert(
                         "Content-Type".to_string(),
-                        serde_json::to_value(&format!(
-                            "multipart/form-data; boundary={}",
-                            boundary
-                        ))
-                        .expect_throw("a valid string is JSON serializable"),
+                        format!("multipart/form-data; boundary={}", boundary),
                     );
 
                     req_wrapper.body = data;
@@ -157,7 +168,7 @@ impl L8RequestObject {
 
         let raw_headers = options.get_headers();
         if !raw_headers.is_undefined() && !raw_headers.is_null() {
-            let headers = utils::headers_to_reqwest_headers(raw_headers)?;
+            let headers = L8Headers::from_jsvalue(raw_headers)?;
             req_wrapper.headers.extend(headers);
         }
 
@@ -190,7 +201,7 @@ impl L8RequestObject {
                 .map_err(|e| JsValue::from_str(&format!("Failed to read stream: {:?}", e)))?;
         };
 
-        req_wrapper.headers = utils::headers_to_reqwest_headers(JsValue::from(req.headers()))?;
+        req_wrapper.headers = L8Headers::from_jsvalue(JsValue::from(req.headers()))?;
         req_wrapper.mode = Some(L8RequestMode::Cors); // Default mode for Request objects
         Ok(req_wrapper)
     }
@@ -202,9 +213,10 @@ impl L8RequestObject {
         http_caller: impl HttpCaller,
     ) -> Result<HttpCallerResponse, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
-        let data = serde_json::to_vec(&self).expect_throw(
-            "we expect the L8requestObject to be asserted as json serializable at compile time",
-        );
+
+        let data = self
+            .to_bytes()
+            .expect_throw("Failed to serialize the L8RequestObject with bincode");
 
         let msg = network_state_open.ntor_encrypt(data)?;
         if dev_flag {
@@ -292,24 +304,15 @@ impl L8RequestObject {
         let referrer_policy = get_request_referer_policy(options);
 
         if !referrer_policy.is_empty() {
-            self.headers.insert(
-                "Referrer-Policy".to_string(),
-                serde_json::to_value(&referrer_policy).expect_throw(
-                    "we expect the referrer policy to be a valid string that can be JSON serialized",
-                ),
-            );
+            self.headers
+                .insert("Referrer-Policy".to_string(), referrer_policy.to_string());
         }
 
         // referrer
         if referrer_policy != "no-referrer" {
             // If the referrer policy is not "no-referrer", we can set the referrer header.
             if let Some(referrer) = options.get_referrer() {
-                self.headers.insert(
-                    "Referrer".to_string(),
-                    serde_json::to_value(&referrer).expect_throw(
-                        "we expect the referrer to be a valid string that can be JSON serialized",
-                    ),
-                );
+                self.headers.insert("Referrer".to_string(), referrer);
             }
         }
 

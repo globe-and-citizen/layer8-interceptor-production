@@ -1,3 +1,4 @@
+pub mod headers;
 pub mod http_caller;
 pub mod network_state;
 pub mod request;

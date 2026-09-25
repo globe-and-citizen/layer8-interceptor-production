@@ -1,9 +1,10 @@
 use crate::storage::InMemoryCache;
+use crate::types::headers::L8Headers;
 use crate::types::http_caller::HttpCallerResponse;
 use crate::types::network_state::{NetworkStateOpen, NetworkStateResponse};
-use crate::utils;
-use serde::Deserialize;
-use std::collections::HashMap;
+use bincode;
+use serde::{Deserialize, Serialize};
+use serde_bytes;
 use wasm_bindgen::{JsValue, throw_str};
 use web_sys::{ResponseInit, console};
 
@@ -11,7 +12,7 @@ use web_sys::{ResponseInit, console};
 ///
 /// This struct is deserialized from the JSON payload returned by the `/proxy` endpoint
 /// after decryption. It is then reconstructed into a browser-native [`web_sys::Response`].
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct L8ResponseObject {
     /// HTTP status code (e.g. `200`, `401`, `500`, etc.).
     pub status: u16,
@@ -20,9 +21,10 @@ pub struct L8ResponseObject {
     pub status_text: String,
 
     /// Response headers as a map of header name to JSON value.
-    pub headers: HashMap<String, serde_json::Value>,
+    pub headers: L8Headers,
 
     /// Raw response body bytes.
+    #[serde(with = "serde_bytes")] // Instructs serde to treat Vec<u8> as compact binary
     pub body: Vec<u8>,
 
     /* Below fields are present but not used because ResponseInit does not support */
@@ -63,7 +65,8 @@ impl L8ResponseObject {
         resp_init.set_status(self.status);
         resp_init.set_status_text(&self.status_text);
 
-        let js_headers = utils::hashmap_to_js_headers(&self.headers)?;
+        // let js_headers = utils::hashmap_to_js_headers(&self.headers)?;
+        let js_headers = self.headers.to_web_sys()?;
         resp_init.set_headers(&js_headers);
 
         let mut body = None;
@@ -80,6 +83,15 @@ impl L8ResponseObject {
                 throw_str(&format!("Failed to construct JS Response: {:?}", err));
             }
         }
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, bincode::error::DecodeError> {
+        let (obj, _len) = bincode::serde::decode_from_slice(bytes, bincode::config::standard())?;
+        Ok(obj)
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, bincode::error::EncodeError> {
+        bincode::serde::encode_to_vec(self, bincode::config::standard())
     }
 }
 
@@ -157,7 +169,7 @@ pub async fn handle_response(
 
     let decrypted_response = network_state_open.ntor_decrypt(body)?;
 
-    let l8_response = serde_json::from_slice::<L8ResponseObject>(&decrypted_response)
+    let l8_response = L8ResponseObject::from_bytes(&decrypted_response)
         .map_err(|e| JsValue::from_str(&format!("Failed to deserialize response: {}", e)))?;
 
     if dev_flag {
