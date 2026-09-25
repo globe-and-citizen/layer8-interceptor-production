@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wasm_bindgen::{JsValue};
+use wasm_bindgen::JsValue;
 
 pub fn hashmap_to_reqwest_header_map(
     input: &HashMap<String, serde_json::Value>,

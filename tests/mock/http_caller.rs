@@ -52,7 +52,7 @@ impl MockHttpCaller {
                     .as_bytes()
                     .expect_throw("we expect the body to be bytes"),
             )
-                .expect_throw("Failed to deserialize request body to ExpectedRequest struct");
+            .expect_throw("Failed to deserialize request body to ExpectedRequest struct");
 
             json_body
                 .public_key
@@ -120,11 +120,11 @@ impl MockHttpCaller {
 
         if (l8_req.uri, l8_req.method, l8_req.headers, l8_req.body)
             != (
-            mock_data.l8_request_object.uri,
-            mock_data.l8_request_object.method,
-            mock_data.l8_request_object.headers,
-            mock_data.l8_request_object.body,
-        )
+                mock_data.l8_request_object.uri,
+                mock_data.l8_request_object.method,
+                mock_data.l8_request_object.headers,
+                mock_data.l8_request_object.body,
+            )
         {
             return Ok(HttpCallerResponse::MockErr(MockHttpError {
                 msg: "Decrypted request body does not match expected mock data".to_string(),

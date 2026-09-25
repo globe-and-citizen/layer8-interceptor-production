@@ -8,11 +8,11 @@ use crate::types::network_state::NetworkStateOpen;
 use crate::utils;
 use bincode;
 use body::L8BodyType;
-use mode_and_policies::{get_request_referer_policy, L8RequestMode};
+use mode_and_policies::{L8RequestMode, get_request_referer_policy};
 use serde::{Deserialize, Serialize};
 use serde_bytes;
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
-use web_sys::{console, AbortSignal};
+use web_sys::{AbortSignal, console};
 
 /// A JSON serializable wrapper for a request that can be sent using the Fetch API.
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
@@ -214,9 +214,9 @@ impl L8RequestObject {
     ) -> Result<HttpCallerResponse, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
 
-        let data = self.to_bytes().expect_throw(
-            "Failed to serialize the L8RequestObject with bincode",
-        );
+        let data = self
+            .to_bytes()
+            .expect_throw("Failed to serialize the L8RequestObject with bincode");
 
         let msg = network_state_open.ntor_encrypt(data)?;
         if dev_flag {

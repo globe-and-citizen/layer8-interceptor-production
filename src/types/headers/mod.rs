@@ -1,9 +1,9 @@
 use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use web_sys::console;
 use crate::storage::InMemoryCache;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use web_sys::console;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 pub struct L8Headers(HashMap<String, String>);
@@ -12,11 +12,11 @@ impl L8Headers {
     pub fn new() -> Self {
         Self(HashMap::new())
     }
-    
+
     pub fn hashmap(&self) -> &HashMap<String, String> {
         &self.0
     }
-    
+
     pub fn from_hashmap(hm: HashMap<String, String>) -> Self {
         Self(hm)
     }
@@ -24,7 +24,6 @@ impl L8Headers {
     pub fn get(&self, key: &str) -> String {
         self.0[key].to_string()
     }
-
 
     /// Controlled insertion method
     pub fn insert(&mut self, key: impl Into<String>, value: impl Into<String>) {
@@ -51,7 +50,7 @@ impl L8Headers {
         }
         Ok(js_headers)
     }
-    
+
     pub fn from_jsvalue(js_headers: JsValue) -> Result<L8Headers, JsValue> {
         let dev_flag = InMemoryCache::get_dev_flag();
 
@@ -63,7 +62,7 @@ impl L8Headers {
         // We first check if the headers are an instance of web_sys::Headers
         if let Some(headers) = js_headers.dyn_ref::<web_sys::Headers>() {
             // return crate::utils::headers::js_headers_to_reqwest_headers(headers);
-            return Self::from_web_sys_headers(headers)
+            return Self::from_web_sys_headers(headers);
         }
 
         if dev_flag {
@@ -105,18 +104,17 @@ impl L8Headers {
                 .as_string()
                 .expect_throw("Expected header name to be a string");
 
-            let header_value = serde_wasm_bindgen::from_value(value)
-                .map_err(|e| JsValue::from_str(&format!("Failed to convert header value: {}", e)))?;
+            let header_value = serde_wasm_bindgen::from_value(value).map_err(|e| {
+                JsValue::from_str(&format!("Failed to convert header value: {}", e))
+            })?;
 
             reqwest_headers.insert(header_name, header_value);
         }
 
         Ok(L8Headers(reqwest_headers))
     }
-    
-    fn from_web_sys_headers(
-        headers: &web_sys::Headers,
-    ) -> Result<Self, JsValue> {
+
+    fn from_web_sys_headers(headers: &web_sys::Headers) -> Result<Self, JsValue> {
         let mut reqwest_headers = HashMap::new();
         for entry in headers.entries() {
             // [key, value] item array
@@ -129,17 +127,17 @@ impl L8Headers {
                 .as_string()
                 .expect_throw("Expected header name to be a string");
 
-            let header_value = serde_wasm_bindgen::from_value(value)
-                .map_err(|e| JsValue::from_str(&format!("Failed to convert header value: {}", e)))?;
+            let header_value = serde_wasm_bindgen::from_value(value).map_err(|e| {
+                JsValue::from_str(&format!("Failed to convert header value: {}", e))
+            })?;
 
             reqwest_headers.insert(header_name, header_value);
         }
 
         Ok(L8Headers(reqwest_headers))
     }
-    
+
     pub fn extend(&mut self, other: L8Headers) {
         self.0.extend(other.0);
     }
-    
 }

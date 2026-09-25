@@ -35,7 +35,7 @@ mod tests_benchmark {
         l8_intercept::init_tunnel::init_tunnel,
         uuid::Uuid,
         wasm_bindgen_test::*,
-        web_sys::{console, FormData},
+        web_sys::{FormData, console},
     };
 
     const MB: u32 = 1024 * 1024; // 1 MB in bytes

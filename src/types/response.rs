@@ -5,8 +5,8 @@ use crate::types::network_state::{NetworkStateOpen, NetworkStateResponse};
 use bincode;
 use serde::{Deserialize, Serialize};
 use serde_bytes;
-use wasm_bindgen::{throw_str, JsValue};
-use web_sys::{console, ResponseInit};
+use wasm_bindgen::{JsValue, throw_str};
+use web_sys::{ResponseInit, console};
 
 /// Represents a decrypted HTTP response received from the Layer8 proxy.
 ///
